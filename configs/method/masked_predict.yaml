@@ -1,0 +1,7 @@
+name: masked_predict
+family: generative
+loss:
+  type: masked_cross_modal
+  mask_ratio: 0.75
+  reconstruction_weight: 1.0
+  alignment_weight: 0.5

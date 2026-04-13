@@ -1,0 +1,6 @@
+name: siglip
+family: contrastive
+loss:
+  type: sigmoid_pairwise
+  temperature: 0.1
+  bias: -10.0

@@ -1,0 +1,181 @@
+{
+  "@context": {
+    "@language": "en",
+    "@vocab": "https://schema.org/",
+    "citeAs": "cr:citeAs",
+    "column": "cr:column",
+    "conformsTo": "dct:conformsTo",
+    "cr": "http://mlcommons.org/croissant/",
+    "dataType": {
+      "@id": "cr:dataType",
+      "@type": "@vocab"
+    },
+    "dct": "http://purl.org/dc/terms/",
+    "extract": "cr:extract",
+    "field": "cr:field",
+    "fileObject": "cr:fileObject",
+    "fileSet": "cr:fileSet",
+    "format": "cr:format",
+    "includes": "cr:includes",
+    "key": "cr:key",
+    "recordSet": "cr:recordSet",
+    "repeated": "cr:repeated",
+    "sc": "https://schema.org/",
+    "source": "cr:source"
+  },
+  "@type": "sc:Dataset",
+  "name": "CSI-Text Multimodal Alignment Benchmark",
+  "description": "The first CSI-Text multimodal dataset with many-to-many pairing for benchmarking language-grounded ambient perception from WiFi signals.",
+  "version": "1.0.0",
+  "license": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "url": "https://github.com/guozhen-jenn-zhu/CSI-Text-Multimodal-Alignment",
+  "conformsTo": "http://mlcommons.org/croissant/1.0",
+  "creator": {
+    "@type": "sc:Organization",
+    "name": "CSI-Text Multimodal Alignment authors"
+  },
+  "citeAs": "@misc{csi_text_2026,\n  title={{CSI-Text}: A Multimodal Benchmark for Language-Grounded WiFi CSI},\n  author={Zhu, Guozhen and collaborators},\n  year={2026},\n  howpublished={\\url{https://github.com/guozhen-jenn-zhu/CSI-Text-Multimodal-Alignment}}\n}",
+  "distribution": [
+    {
+      "@type": "cr:FileObject",
+      "@id": "source_repository",
+      "name": "CSI-Text_Multimodal_Alignment_GitHub",
+      "description": "Training code, configs, preprocessing, and evaluation protocols.",
+      "contentUrl": "https://github.com/guozhen-jenn-zhu/CSI-Text-Multimodal-Alignment",
+      "encodingFormat": "git+https",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "@type": "cr:FileObject",
+      "@id": "huggingface_dataset_card",
+      "name": "HuggingFace_Hub_dataset",
+      "description": "Dataset card and release artifacts on the Hugging Face Hub (URL finalized at publication).",
+      "contentUrl": "https://huggingface.co/datasets/guozhen-jenn-zhu/csi-text-multimodal-alignment",
+      "encodingFormat": "text/html",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "@type": "cr:FileObject",
+      "@id": "kaggle_dataset_page",
+      "name": "Kaggle_dataset",
+      "description": "Mirror and metadata on Kaggle (URL finalized at publication).",
+      "contentUrl": "https://www.kaggle.com/datasets/guozhenzhu/csi-text-multimodal-alignment",
+      "encodingFormat": "text/html",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "@type": "cr:FileObject",
+      "@id": "csi_text_pairs_jsonl",
+      "name": "csi_text_pairs.jsonl",
+      "description": "Line-delimited manifest of CSI-text records (columns referenced by the primary record set). Tensor values may be stored by reference to HDF5 in full releases.",
+      "contentUrl": "https://huggingface.co/datasets/guozhen-jenn-zhu/csi-text-multimodal-alignment/resolve/main/csi_text_pairs.jsonl",
+      "encodingFormat": "application/jsonlines",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "recordSet": [
+    {
+      "@type": "cr:RecordSet",
+      "@id": "csi_text_pairs",
+      "name": "csi_text_pairs",
+      "description": "Homogeneous records linking normalized CSI amplitude tensors to natural-language descriptions, task names, class indices, and source dataset identifiers.",
+      "key": {
+        "@id": "csi_text_pairs/sample_id"
+      },
+      "field": [
+        {
+          "@type": "cr:Field",
+          "@id": "csi_text_pairs/sample_id",
+          "name": "sample_id",
+          "description": "Stable identifier for one CSI segment in the unified schema.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "csi_text_pairs_jsonl"
+            },
+            "extract": {
+              "column": "sample_id"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "csi_text_pairs/csi_data",
+          "name": "csi_data",
+          "description": "CSI amplitude tensor [C, K, T] (float32), or a reference path into bundled HDF5 when tensors are not inlined in JSONL.",
+          "dataType": "sc:Float",
+          "repeated": true,
+          "source": {
+            "fileObject": {
+              "@id": "csi_text_pairs_jsonl"
+            },
+            "extract": {
+              "column": "csi_data"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "csi_text_pairs/text_descriptions",
+          "name": "text_descriptions",
+          "description": "Associated text descriptions for many-to-many alignment (list of strings or newline-separated field in the manifest).",
+          "dataType": "sc:Text",
+          "repeated": true,
+          "source": {
+            "fileObject": {
+              "@id": "csi_text_pairs_jsonl"
+            },
+            "extract": {
+              "column": "text_descriptions"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "csi_text_pairs/task",
+          "name": "task",
+          "description": "Sensing task name (e.g., har, sign_recognition, fall_detection).",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "csi_text_pairs_jsonl"
+            },
+            "extract": {
+              "column": "task"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "csi_text_pairs/label",
+          "name": "label",
+          "description": "Integer class label within the task.",
+          "dataType": "sc:Integer",
+          "source": {
+            "fileObject": {
+              "@id": "csi_text_pairs_jsonl"
+            },
+            "extract": {
+              "column": "label"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "csi_text_pairs/source_dataset",
+          "name": "source_dataset",
+          "description": "One of csibench, xrf55, or signfi.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "csi_text_pairs_jsonl"
+            },
+            "extract": {
+              "column": "source_dataset"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

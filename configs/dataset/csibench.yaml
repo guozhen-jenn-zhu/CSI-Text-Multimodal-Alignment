@@ -1,0 +1,36 @@
+name: csibench
+data_root: /data/fm_downstream
+
+tasks:
+  fall_detection:
+    folder: FallDetection
+    h5_key: CSI_amps
+  breathing_detection:
+    folder: BreathingDetection
+    h5_key: CSI_amps
+  localization:
+    folder: Localization
+    h5_key: CSI_amps
+  motion_source:
+    folder: MotionSourceRecognition
+    h5_key: CSI_amps
+  har:
+    folder: HumanActivityRecognition
+    h5_key: CSI_amps
+  user_id:
+    folder: HumanIdentification
+    h5_key: CSI_amps
+  proximity:
+    folder: ProximityRecognition
+    h5_key: CSI_amps
+
+multitask_tasks:
+  - har
+  - user_id
+  - proximity
+
+preprocessing:
+  input_channels: 1
+  target_subcarriers: 64
+  target_time_steps: 500
+  normalize: true

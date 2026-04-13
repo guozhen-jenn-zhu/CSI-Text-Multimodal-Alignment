@@ -1,0 +1,7 @@
+name: centrobind
+family: anchor_based
+loss:
+  type: centroid_contrastive
+  temperature: 0.07
+  num_centroids: 16
+  centroid_momentum: 0.999

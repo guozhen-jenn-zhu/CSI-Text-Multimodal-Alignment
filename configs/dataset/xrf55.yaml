@@ -1,0 +1,13 @@
+name: xrf55
+data_root: /data/fm_downstream
+
+tasks:
+  action_recognition:
+    folder: XRF55
+    h5_key: auto
+
+preprocessing:
+  input_channels: 1
+  target_subcarriers: 64
+  target_time_steps: 500
+  normalize: true

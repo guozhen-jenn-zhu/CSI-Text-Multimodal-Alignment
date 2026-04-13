@@ -1,0 +1,9 @@
+name: language_bind
+family: anchor_based
+loss:
+  type: infonce
+  temperature: 0.07
+  symmetric: false
+text_encoder:
+  frozen: true
+  train_projection_only: true

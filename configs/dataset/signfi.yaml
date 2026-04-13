@@ -1,0 +1,13 @@
+name: signfi
+data_root: /data/fm_downstream
+
+tasks:
+  sign_recognition:
+    folder: SignFi
+    h5_key: amplitude
+
+preprocessing:
+  input_channels: 1
+  target_subcarriers: 64
+  target_time_steps: 500
+  normalize: true
