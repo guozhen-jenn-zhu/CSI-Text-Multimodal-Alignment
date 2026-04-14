@@ -194,6 +194,7 @@ class Trainer:
             input_subcarriers=input_subcarriers,
             input_timesteps=input_timesteps,
             embed_dim=embed_dim,
+            dropout=float(enc_cfg.get("dropout", 0.0)),
         )
 
         txt_cfg = self.config.get("text_encoder", {})
@@ -206,11 +207,13 @@ class Trainer:
             self.text_encoder = build_text_encoder(name=txt_cfg.get("name", "clip_vit_b32"))
             text_embed_dim = self.text_encoder.embed_dim
 
+        proj_dropout = float(proj_cfg.get("dropout", 0.0))
         self.csi_projection = ProjectionHead(
             input_dim=embed_dim,
             output_dim=proj_cfg.get("dim", 512),
             hidden_dim=proj_cfg.get("hidden_dim", 1024),
             num_layers=proj_cfg.get("num_layers", 2),
+            dropout=proj_dropout,
         )
 
         method_name = self.config["method"]
@@ -222,6 +225,7 @@ class Trainer:
                 output_dim=proj_cfg.get("dim", 512),
                 hidden_dim=proj_cfg.get("hidden_dim", 1024),
                 num_layers=proj_cfg.get("num_layers", 2),
+                dropout=proj_dropout,
             )
 
         model_kwargs = self._extract_model_kwargs(method_name, loss_cfg, embed_dim)
@@ -316,6 +320,7 @@ class Trainer:
             "prefetch_factor": training_cfg.get("prefetch_factor", 2),
             "persistent_workers": training_cfg.get("persistent_workers", True),
             "preload": training_cfg.get("preload", False),
+            "augmentation": self.config.get("augmentation", {}),
         }
 
         loaders = build_dataloaders(

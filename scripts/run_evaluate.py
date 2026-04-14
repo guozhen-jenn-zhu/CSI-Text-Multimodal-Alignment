@@ -71,17 +71,20 @@ def build_model_from_config(config: dict, device: torch.device) -> tuple[torch.n
         input_subcarriers=input_subcarriers,
         input_timesteps=input_timesteps,
         embed_dim=embed_dim,
+        dropout=float(enc_cfg.get("dropout", 0.0)),
     )
 
     txt_cfg = config.get("text_encoder", {})
     text_encoder = build_text_encoder(name=txt_cfg.get("name", "clip_vit_b32"))
     text_embed_dim = text_encoder.embed_dim
 
+    proj_dropout = float(proj_cfg.get("dropout", 0.0))
     csi_projection = ProjectionHead(
         input_dim=embed_dim,
         output_dim=proj_cfg.get("dim", 512),
         hidden_dim=proj_cfg.get("hidden_dim", 1024),
         num_layers=proj_cfg.get("num_layers", 2),
+        dropout=proj_dropout,
     )
 
     method_name = config["method"]
@@ -93,6 +96,7 @@ def build_model_from_config(config: dict, device: torch.device) -> tuple[torch.n
             output_dim=proj_cfg.get("dim", 512),
             hidden_dim=proj_cfg.get("hidden_dim", 1024),
             num_layers=proj_cfg.get("num_layers", 2),
+            dropout=proj_dropout,
         )
 
     model_kwargs = _extract_model_kwargs(method_name, loss_cfg, embed_dim)

@@ -22,6 +22,53 @@ from data.pair_registry import PairRegistry
 logger = logging.getLogger(__name__)
 
 
+class CSIAugmentation:
+    """Stochastic augmentations for CSI tensors (training only).
+
+    All operations work on numpy arrays of shape ``[C, K, T]``.
+    Each augmentation is applied independently with its own probability.
+    """
+
+    def __init__(
+        self,
+        time_mask_ratio: float = 0.1,
+        subcarrier_mask_ratio: float = 0.1,
+        noise_std: float = 0.05,
+        scale_range: tuple[float, float] = (0.9, 1.1),
+        p: float = 0.5,
+    ) -> None:
+        self.time_mask_ratio = time_mask_ratio
+        self.subcarrier_mask_ratio = subcarrier_mask_ratio
+        self.noise_std = noise_std
+        self.scale_range = scale_range
+        self.p = p
+        self._rng = np.random.default_rng()
+
+    def __call__(self, csi: np.ndarray) -> np.ndarray:
+        csi = csi.copy()
+        C, K, T = csi.shape
+
+        if self._rng.random() < self.p and self.time_mask_ratio > 0:
+            mask_len = max(1, int(T * self.time_mask_ratio))
+            start = self._rng.integers(0, T - mask_len + 1)
+            csi[:, :, start : start + mask_len] = 0.0
+
+        if self._rng.random() < self.p and self.subcarrier_mask_ratio > 0:
+            mask_len = max(1, int(K * self.subcarrier_mask_ratio))
+            start = self._rng.integers(0, K - mask_len + 1)
+            csi[:, start : start + mask_len, :] = 0.0
+
+        if self._rng.random() < self.p and self.noise_std > 0:
+            csi = csi + self._rng.normal(0, self.noise_std, size=csi.shape).astype(csi.dtype)
+
+        if self._rng.random() < self.p:
+            lo, hi = self.scale_range
+            scale = self._rng.uniform(lo, hi)
+            csi = csi * scale
+
+        return csi
+
+
 class CSITextDataset(Dataset):
     """Unified CSI-Text dataset with many-to-many pairing.
 
@@ -262,6 +309,21 @@ def build_dataloaders(
         "preload": config.get("preload", False),
     }
 
+    aug_cfg = config.get("augmentation", {})
+    train_augmentation = None
+    if aug_cfg.get("enabled", False):
+        train_augmentation = CSIAugmentation(
+            time_mask_ratio=float(aug_cfg.get("time_mask_ratio", 0.1)),
+            subcarrier_mask_ratio=float(aug_cfg.get("subcarrier_mask_ratio", 0.1)),
+            noise_std=float(aug_cfg.get("noise_std", 0.05)),
+            scale_range=(
+                float(aug_cfg.get("scale_min", 0.9)),
+                float(aug_cfg.get("scale_max", 1.1)),
+            ),
+            p=float(aug_cfg.get("p", 0.5)),
+        )
+        logger.info("CSI augmentation enabled: %s", aug_cfg)
+
     batch_size = config.get("batch_size", 128)
     num_workers = config.get("num_workers", 4)
     prefetch_factor = config.get("prefetch_factor", 2)
@@ -269,7 +331,8 @@ def build_dataloaders(
 
     loaders: dict[str, DataLoader] = {}
     for split in ("train", "val", "test"):
-        ds = CSITextDataset(split=split, **shared_kwargs)
+        transform = train_augmentation if split == "train" else None
+        ds = CSITextDataset(split=split, transform=transform, **shared_kwargs)
 
         sampler = None
         shuffle = split == "train"

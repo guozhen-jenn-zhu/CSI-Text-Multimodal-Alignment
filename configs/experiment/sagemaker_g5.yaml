@@ -15,6 +15,7 @@ dataset_config:
 csi_encoder:
   name: resnet18_1d
   pretrained: false
+  dropout: 0.1
 
 text_encoder:
   name: clip_vit_b32
@@ -24,12 +25,13 @@ projection:
   dim: 512
   hidden_dim: 1024
   num_layers: 2
+  dropout: 0.1
 
 training:
   # g5.8xlarge: 1x A10G (24 GB), g5.24xlarge: 4x, g5.48xlarge: 8x
   batch_size: 128
-  learning_rate: 1.0e-3
-  weight_decay: 1.0e-5
+  learning_rate: 5.0e-4
+  weight_decay: 1.0e-4
   max_epochs: 100
   warmup_epochs: 5
   scheduler: cosine
@@ -44,6 +46,15 @@ training:
   amp: true
   amp_dtype: bfloat16
   accumulation_steps: 1
+
+augmentation:
+  enabled: true
+  time_mask_ratio: 0.1
+  subcarrier_mask_ratio: 0.1
+  noise_std: 0.05
+  scale_min: 0.9
+  scale_max: 1.1
+  p: 0.5
 
 text_generation:
   num_paraphrases: 5

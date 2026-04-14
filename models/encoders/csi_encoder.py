@@ -45,7 +45,7 @@ class ResNet18_1D(nn.Module):
 
     def __init__(self, input_channels: int, input_subcarriers: int,
                  input_timesteps: int, embed_dim: int = 512,
-                 base_width: int = 64):
+                 base_width: int = 64, dropout: float = 0.0):
         super().__init__()
         in_chan = input_channels * input_subcarriers
         self.conv1 = nn.Conv1d(in_chan, base_width, kernel_size=7, stride=2,
@@ -59,6 +59,7 @@ class ResNet18_1D(nn.Module):
         self.layer4 = self._make_layer(base_width * 4, base_width * 8, 2, stride=2)
 
         self.avgpool = nn.AdaptiveAvgPool1d(1)
+        self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
         self.fc = nn.Linear(base_width * 8, embed_dim)
 
         self._init_weights()
@@ -102,6 +103,7 @@ class ResNet18_1D(nn.Module):
         x = self.layer4(x)
 
         x = self.avgpool(x).squeeze(-1)
+        x = self.dropout(x)
         return self.fc(x)
 
 
