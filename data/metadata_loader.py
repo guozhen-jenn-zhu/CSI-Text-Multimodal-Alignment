@@ -129,9 +129,31 @@ class MetadataLoader:
         return _resolve_xrf55_key(Path(file_path).name)
 
     def _resolve_file_path(self, relative_path: str) -> Path:
-        """Resolve a relative file_path from the CSV to an absolute path."""
+        """Resolve a relative file_path from the CSV to an absolute path.
+
+        Tries ``task_root / rel`` first.  If not found, scans immediate
+        subdirectories of *task_root* (e.g. ``sub_Human/``) as a fallback
+        — CSI-Bench standalone tasks store H5s in a subdirectory that may
+        not be part of the CSV's ``file_path`` column.
+        """
         rel = relative_path.lstrip("./")
-        return self.task_root / rel
+        direct = self.task_root / rel
+        if direct.is_file():
+            return direct
+
+        if not hasattr(self, "_h5_subdir"):
+            self._h5_subdir: str | None = None
+            for child in self.task_root.iterdir():
+                if child.is_dir() and child.name not in ("metadata", "splits"):
+                    candidate = child / rel
+                    if candidate.is_file():
+                        self._h5_subdir = child.name
+                        break
+
+        if self._h5_subdir is not None:
+            return self.task_root / self._h5_subdir / rel
+
+        return direct
 
     def load_sample(self, sample_id: str) -> np.ndarray:
         """Load a single CSI sample from its H5 file.
