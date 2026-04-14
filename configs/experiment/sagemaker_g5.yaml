@@ -26,7 +26,7 @@ projection:
   num_layers: 2
 
 training:
-  # g5.24xlarge: 4x A10G (24 GB each) — effective batch = batch_size * 4 GPUs
+  # g5.8xlarge: 1x A10G (24 GB), g5.24xlarge: 4x, g5.48xlarge: 8x
   batch_size: 128
   learning_rate: 1.0e-3
   weight_decay: 1.0e-5
@@ -35,7 +35,7 @@ training:
   scheduler: cosine
   early_stopping_patience: 15
   grad_clip: 1.0
-  num_workers: 8
+  num_workers: 4
   prefetch_factor: 2
   persistent_workers: true
   seed: 42

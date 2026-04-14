@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 #
-# End-to-end training pipeline for SageMaker Studio g5.24xlarge (4x A10G).
+# End-to-end training pipeline for SageMaker Studio g5 instances.
+# Tested on: g5.8xlarge (1x A10G), g5.24xlarge (4x), g5.48xlarge (8x).
 #
 # Stages:
+#   0. Create symlinks for multitask shared H5 files
 #   1. Install dependencies
-#   2. Generate text pair registries (if missing)
+#   2. Check pair registry exists (error if missing)
 #   3. Generate precomputed text embeddings (if missing)
 #   4. Launch multi-GPU training with torchrun
 #
@@ -33,13 +35,15 @@ ENCODER="${ENCODER:-resnet18_1d}"
 TEXT_ENCODER="${TEXT_ENCODER:-clip_vit_b32}"
 BATCH_SIZE="${BATCH_SIZE:-128}"
 MAX_EPOCHS="${MAX_EPOCHS:-100}"
-NUM_WORKERS="${NUM_WORKERS:-8}"
+NUM_WORKERS="${NUM_WORKERS:-4}"
 LR="${LR:-1e-3}"
 
 REPO_ROOT="/home/sagemaker-user/CSI-Text-Multimodal-Alignment"
 DATA_ROOT="/home/sagemaker-user/Multimodal_CSI_Text/Dataset"
 MODEL_ROOT="/home/sagemaker-user/Multimodal_CSI_Text/Model"
 CONFIG="${REPO_ROOT}/configs/experiment/sagemaker_g5.yaml"
+
+export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
 
 # Task definitions: task_name -> data_root_suffix
 declare -A CSIBENCH_STANDALONE_TASKS=(
@@ -58,7 +62,15 @@ declare -A CSIBENCH_MULTITASK_TASKS=(
 log() { echo -e "\n\033[1;34m[$(date '+%H:%M:%S')] $*\033[0m"; }
 
 detect_gpus() {
-    python3 -c "import torch; print(torch.cuda.device_count())" 2>/dev/null || echo "1"
+    local count
+    count=$(python3 -c "import torch; print(torch.cuda.device_count())" 2>/dev/null) || true
+    if [[ -z "$count" ]] || [[ "$count" -le 0 ]]; then
+        count=$(nvidia-smi -L 2>/dev/null | wc -l) || true
+    fi
+    if [[ -z "$count" ]] || [[ "$count" -le 0 ]]; then
+        count=1
+    fi
+    echo "$count"
 }
 
 resolve_task_root() {
@@ -115,42 +127,27 @@ install_deps() {
 }
 
 # ------------------------------------------------------------------
-# Stage 2: Generate pair registries (if missing)
+# Stage 2: Check pair registry exists
 # ------------------------------------------------------------------
-generate_registry() {
+check_registry() {
     local task_name="$1"
     local reg_dir
     reg_dir=$(resolve_registry_dir "$task_name")
     local reg_path="${reg_dir}/pair_registry.json"
 
     if [[ -f "$reg_path" ]]; then
-        log "Pair registry already exists: ${reg_path}"
+        log "Pair registry found: ${reg_path}"
         return
     fi
 
-    log "Generating pair registry for ${DATASET}/${task_name}"
-    local task_root
-    task_root=$(resolve_task_root "$task_name")
-
-    cd "$REPO_ROOT"
-    python -m scripts.generate_all_texts \
-        --datasets "$DATASET" \
-        --tasks "$task_name" \
-        --data_root "${DATA_ROOT}/csibench" \
-        --output_dir "${DATA_ROOT}/csibench"
-
-    # If output went to a nested path, move it
-    local gen_path="${DATA_ROOT}/csibench/${DATASET}/${task_name}/pair_registry.json"
-    if [[ -f "$gen_path" ]] && [[ ! -f "$reg_path" ]]; then
-        mkdir -p "$reg_dir"
-        mv "$gen_path" "$reg_path"
-    fi
-
-    if [[ -f "$reg_path" ]]; then
-        log "Pair registry saved: ${reg_path}"
-    else
-        log "WARNING: Pair registry generation may have failed. Check paths."
-    fi
+    log "ERROR: Pair registry not found at: ${reg_path}"
+    log "Please add pair_registry.json to the dataset before training."
+    log "You can generate it with:"
+    log "  cd ${REPO_ROOT}"
+    log "  PYTHONPATH=. python scripts/generate_all_texts.py \\"
+    log "      --datasets ${DATASET} --tasks ${task_name} \\"
+    log "      --data_root ${DATA_ROOT}/csibench --output_dir ${reg_dir}"
+    exit 1
 }
 
 # ------------------------------------------------------------------
@@ -175,7 +172,7 @@ generate_embeddings() {
 
     log "Generating text embeddings for ${DATASET}/${task_name} with ${TEXT_ENCODER}"
     cd "$REPO_ROOT"
-    python scripts/generate_text_embeddings.py \
+    python -m scripts.generate_text_embeddings \
         --registry_path "$reg_path" \
         --output_path "$emb_path" \
         --encoder "$TEXT_ENCODER" \
@@ -244,7 +241,10 @@ train_task() {
 # ------------------------------------------------------------------
 main() {
     log "=== CSI-Text Multimodal Alignment Training Pipeline ==="
-    log "Instance: g5.24xlarge | GPUs: $(detect_gpus) x A10G"
+    log "GPU diagnostics:"
+    nvidia-smi -L 2>/dev/null || log "  nvidia-smi not available"
+    python3 -c "import torch; print(f'  PyTorch CUDA available: {torch.cuda.is_available()}, device_count: {torch.cuda.device_count()}')" 2>/dev/null || true
+    log "Detected GPUs: $(detect_gpus)"
 
     install_deps
     setup_symlinks
@@ -260,7 +260,7 @@ main() {
         log "=========================================="
         log "Processing task: ${t}"
         log "=========================================="
-        generate_registry "$t"
+        check_registry "$t"
         generate_embeddings "$t"
         train_task "$t"
     done
