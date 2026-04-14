@@ -25,8 +25,8 @@ class CrossTaskTransfer:
     TRANSFER_PAIRS: dict[str, list[tuple[str, str]]] = {
         "csibench": [
             ("har", "motion_source"),
-            ("proximity", "localization"),
             ("har", "fall_detection"),
+            ("har", "proximity"),
         ],
     }
 

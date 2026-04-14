@@ -44,24 +44,17 @@ class AmbientQA:
         "motion_source": {
             "question": "What is causing the motion?",
             "answers": {
-                0: "A human is moving",
-                1: "A pet is moving",
+                0: "A fan is oscillating",
+                1: "A human is moving",
                 2: "A cleaning robot is moving",
-                3: "A fan is oscillating",
+                3: "A pet is moving",
             },
         },
         "fall_event": {
             "question": "Is a fall occurring?",
             "answers": {
-                0: "No fall is occurring",
-                1: "A person is falling",
-            },
-        },
-        "breathing": {
-            "question": "Is someone breathing in the room?",
-            "answers": {
-                0: "The room is empty",
-                1: "Someone is breathing",
+                0: "A person is falling",
+                1: "No fall is occurring",
             },
         },
     }

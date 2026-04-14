@@ -1,10 +1,11 @@
 name: xrf55
-data_root: /data/fm_downstream
+source_prefix: ""
 
 tasks:
   action_recognition:
     folder: XRF55
     h5_key: auto
+    type: standalone
 
 preprocessing:
   input_channels: 1

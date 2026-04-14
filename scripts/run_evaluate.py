@@ -14,6 +14,7 @@ import yaml
 from torch.utils.data import DataLoader
 
 from data import build_dataloaders
+from data.pair_registry import PairRegistry
 from data.text_generation.templates.task_templates import get_task_templates
 from evaluation import (
     AmbientQA,
@@ -111,30 +112,34 @@ def build_model_from_config(config: dict, device: torch.device) -> tuple[torch.n
 
 
 def _local_class_texts(entries: list[dict[str, Any]]) -> dict[int, list[str]]:
+    """Build class_texts from raw template entries (fallback when no registry)."""
     ordered = sorted(entries, key=lambda e: e["class_id"])
-    return {i: e["templates"] for i, e in enumerate(ordered)}
+    return {e["class_id"]: e["templates"] for e in ordered}
 
 
-def build_class_texts(dataset: str, task: str) -> dict[int, list[str]]:
-    if dataset == "csibench":
-        entries = get_task_templates("csibench", task)
-        return _local_class_texts(entries)
-    if dataset == "xrf55":
-        from data.preprocessing.xrf55_loader import XRF55Loader
-        from data.text_generation.templates import task_templates as tt
+def build_class_texts(
+    dataset: str,
+    task: str,
+    registry_path: Optional[str] = None,
+) -> dict[int, list[str]]:
+    """Build class_texts mapping, preferring the pair registry when available.
 
-        flat: list[dict[str, Any]] = []
-        for group_templates in tt.XRF55_TEMPLATES.values():
-            flat.extend(group_templates)
-        by_name = {e["class_name"]: e["templates"] for e in flat}
-        out: dict[int, list[str]] = {}
-        for i, name in enumerate(XRF55Loader.ACTION_CLASSES):
-            out[i] = by_name.get(name, [f"A person performs the action {name} in the scene."])
-        return out
-    if dataset == "signfi":
-        entries = get_task_templates("signfi", "sign_recognition")
-        return _local_class_texts(entries)
-    raise ValueError(f"Unsupported dataset: {dataset}")
+    If *registry_path* points to a valid v2 registry, class texts are loaded
+    from it (including any LLM paraphrases). Otherwise, falls back to raw
+    templates.
+    """
+    if registry_path and Path(registry_path).is_file():
+        try:
+            reg = PairRegistry.load(registry_path)
+            ct = reg.get_class_texts()
+            if ct:
+                logger.info("Loaded class_texts from registry: %s (%d classes)", registry_path, len(ct))
+                return ct
+        except Exception as e:
+            logger.warning("Failed to load class_texts from registry %s: %s — falling back to templates", registry_path, e)
+
+    entries = get_task_templates(dataset, task)
+    return _local_class_texts(entries)
 
 
 def _dataset_yaml_defaults(dataset_name: str) -> dict[str, Any]:
@@ -183,19 +188,33 @@ def cross_dataset_source_name(config: dict) -> str:
     return f"{d}_{t}"
 
 
-def _register_ambient_answers(aq: AmbientQA, config: dict) -> None:
-    from data.text_generation.templates.task_templates import CSIBENCH_TEMPLATES
+def _register_ambient_answers(
+    aq: AmbientQA, config: dict, registry_dir: Optional[str] = None,
+) -> None:
+    """Register answer texts for ambient QA attributes.
 
-    if "activity" in aq.QUESTION_TEMPLATES:
-        har = CSIBENCH_TEMPLATES.get("har", [])
-        if har:
-            answers = {i: t["templates"][0] for i, t in enumerate(sorted(har, key=lambda x: x["class_id"]))}
-            aq.register_answers("activity", answers)
-    if "user_identity" in aq.QUESTION_TEMPLATES:
-        uid = CSIBENCH_TEMPLATES.get("user_id", [])
-        if uid:
-            answers = {i: t["templates"][0] for i, t in enumerate(sorted(uid, key=lambda x: x["class_id"]))}
-            aq.register_answers("user_identity", answers)
+    Tries to load from per-task registries first (uses the first template text
+    per class). Falls back to raw templates.
+    """
+    task_attr_map = {
+        "har": "activity",
+        "user_id": "user_identity",
+    }
+
+    for task_name, attr in task_attr_map.items():
+        if attr not in aq.QUESTION_TEMPLATES:
+            continue
+
+        reg_path = None
+        if registry_dir:
+            candidate = Path(registry_dir) / task_name / "pair_registry.json"
+            if candidate.is_file():
+                reg_path = str(candidate)
+
+        ct = build_class_texts("csibench", task_name, registry_path=reg_path)
+        if ct:
+            answers = {cid: texts[0] for cid, texts in sorted(ct.items()) if texts}
+            aq.register_answers(attr, answers)
 
 
 def _run_ambient_qa_multitask(
@@ -205,12 +224,13 @@ def _run_ambient_qa_multitask(
     csi_projection: torch.nn.Module,
     config: dict,
     device: torch.device,
+    registry_dir: Optional[str] = None,
 ) -> dict[str, Any]:
     cfg = _loader_config_from_experiment(config, task="multi_task", multi_task=True)
     loaders = build_dataloaders(cfg)
     test_loader = loaders["test"]
     aq = AmbientQA(text_encoder, text_projection, device=str(device))
-    _register_ambient_answers(aq, config)
+    _register_ambient_answers(aq, config, registry_dir=registry_dir)
     all_task_labels: dict[str, list[np.ndarray]] = {}
     model.eval()
     csi_encoder = model.csi_encoder
@@ -312,6 +332,12 @@ def main() -> None:
         help="Protocols to run",
     )
     parser.add_argument("--output_dir", default="results", help="Directory for metrics and tables")
+    parser.add_argument(
+        "--registry_dir",
+        default=None,
+        help="Directory containing per-task pair registries (e.g. data/generated_texts/csibench). "
+             "If provided, class_texts are loaded from registries instead of raw templates.",
+    )
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -337,7 +363,12 @@ def main() -> None:
 
     results: dict[str, Any] = {"config": {"dataset": dataset, "task": task, "method": config.get("method")}}
 
-    class_texts = build_class_texts(dataset, task)
+    reg_path = None
+    if args.registry_dir:
+        candidate = Path(args.registry_dir) / task / "pair_registry.json"
+        if candidate.is_file():
+            reg_path = str(candidate)
+    class_texts = build_class_texts(dataset, task, registry_path=reg_path)
     loader_cfg = _loader_config_from_experiment(config)
     loaders = build_dataloaders(loader_cfg)
 
@@ -359,6 +390,7 @@ def main() -> None:
         try:
             aq_res = _run_ambient_qa_multitask(
                 model, text_encoder, text_projection, csi_projection, config, device,
+                registry_dir=args.registry_dir,
             )
             results["ambient_qa"] = _strip_heavy(aq_res)
         except Exception as e:
@@ -375,7 +407,12 @@ def main() -> None:
                 cfg_t = _loader_config_from_experiment(config, task=tgt, multi_task=False)
                 ld = build_dataloaders(cfg_t)
                 target_loaders[tgt] = ld["test"]
-                target_texts[tgt] = build_class_texts("csibench", tgt)
+                tgt_reg = None
+                if args.registry_dir:
+                    tgt_cand = Path(args.registry_dir) / tgt / "pair_registry.json"
+                    if tgt_cand.is_file():
+                        tgt_reg = str(tgt_cand)
+                target_texts[tgt] = build_class_texts("csibench", tgt, registry_path=tgt_reg)
         results["cross_task"] = _numpy_json(
             ct.evaluate_all_pairs(
                 "csibench",
@@ -406,9 +443,14 @@ def main() -> None:
                 elif tgt == "csibench_har":
                     cfg_t = _loader_config_from_experiment(config, task="har", dataset_name="csibench")
                     ld = build_dataloaders(cfg_t)["test"]
+                    har_reg = None
+                    if args.registry_dir:
+                        har_cand = Path(args.registry_dir) / "har" / "pair_registry.json"
+                        if har_cand.is_file():
+                            har_reg = str(har_cand)
                     target_configs[tgt] = {
                         "dataloader": ld,
-                        "class_texts": build_class_texts("csibench", "har"),
+                        "class_texts": build_class_texts("csibench", "har", registry_path=har_reg),
                     }
                 elif tgt == "xrf55_gesture_subset":
                     cfg_t = _loader_config_from_experiment(

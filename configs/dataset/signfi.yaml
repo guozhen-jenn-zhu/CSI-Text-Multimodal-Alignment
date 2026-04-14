@@ -1,10 +1,11 @@
 name: signfi
-data_root: /data/fm_downstream
+source_prefix: ""
 
 tasks:
   sign_recognition:
     folder: SignFi
     h5_key: amplitude
+    type: standalone
 
 preprocessing:
   input_channels: 1

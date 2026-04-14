@@ -1,33 +1,34 @@
 name: csibench
-data_root: /data/fm_downstream
+source_prefix: CSI-Bench    # S3 sub-path under Data/fm_downstream/
 
+# Standalone tasks — each has its own H5 files, metadata, and splits.
 tasks:
   fall_detection:
     folder: FallDetection
     h5_key: CSI_amps
-  breathing_detection:
-    folder: BreathingDetection
-    h5_key: CSI_amps
-  localization:
-    folder: Localization
-    h5_key: CSI_amps
+    type: standalone
   motion_source:
     folder: MotionSourceRecognition
     h5_key: CSI_amps
-  har:
-    folder: HumanActivityRecognition
-    h5_key: CSI_amps
-  user_id:
-    folder: HumanIdentification
-    h5_key: CSI_amps
-  proximity:
-    folder: ProximityRecognition
-    h5_key: CSI_amps
+    type: standalone
+    fine_grained_labels: true  # override binary label_mapping with 4-class
 
-multitask_tasks:
-  - har
-  - user_id
-  - proximity
+# Multitask — one shared pool of H5 files, per-task metadata and splits.
+multitask:
+  folder: Multitask/H5
+  h5_key: CSI_amps
+  h5_subdir: sub_Human         # H5 files live here (copied once)
+  tasks:
+    har:
+      metadata_folder: HumanActivityRecognition
+    proximity:
+      metadata_folder: ProximityRecognition
+    user_id:
+      metadata_folder: HumanIdentification
+  composite_attributes:
+    - user
+    - activity
+    - distance
 
 preprocessing:
   input_channels: 1
