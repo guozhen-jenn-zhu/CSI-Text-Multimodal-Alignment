@@ -65,7 +65,7 @@ declare -A CSIBENCH_MULTITASK_TASKS=(
     [user_id]="csibench/multitask"
 )
 declare -A SIGNFI_TASKS=(
-    [sign_recognition]="signfi/SignFi"
+    [sign_recognition]="signfi/sign_recognition"
 )
 declare -A XRF55_TASKS=(
     [action_recognition]="xrf55/XRF55"

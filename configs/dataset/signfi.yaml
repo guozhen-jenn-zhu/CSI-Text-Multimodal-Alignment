@@ -3,7 +3,7 @@ source_prefix: ""
 
 tasks:
   sign_recognition:
-    folder: SignFi
+    folder: sign_recognition
     h5_key: amplitude
     type: standalone
 

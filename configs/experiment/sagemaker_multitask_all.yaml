@@ -25,7 +25,7 @@ multitask:
       h5_key: CSI_amps
     # -- SignFI --
     - task_name: sign_recognition
-      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/signfi/SignFi
+      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/signfi/sign_recognition
       h5_key: amplitude
     # -- XRF55 --
     - task_name: action_recognition
