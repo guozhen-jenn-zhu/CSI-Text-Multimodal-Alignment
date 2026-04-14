@@ -17,17 +17,13 @@ logger = logging.getLogger(__name__)
 class CrossTaskTransfer:
     """Evaluate zero-shot transfer across tasks within a dataset.
 
-    A model trained on a *source* task (e.g. HAR) is evaluated on a *target*
-    task (e.g. fall detection) using only the target task's text class
+    A model trained on a *source* task (e.g. HAR) is evaluated on every other
+    task in the same dataset using only the target task's text class
     prototypes — no fine-tuning.
     """
 
-    TRANSFER_PAIRS: dict[str, list[tuple[str, str]]] = {
-        "csibench": [
-            ("har", "motion_source"),
-            ("har", "fall_detection"),
-            ("har", "proximity"),
-        ],
+    DATASET_TASKS: dict[str, list[str]] = {
+        "csibench": ["har", "fall_detection", "motion_source", "proximity", "user_id"],
     }
 
     def __init__(
@@ -87,33 +83,50 @@ class CrossTaskTransfer:
         model: nn.Module,
         target_dataloaders: dict[str, object],
         target_class_texts_map: dict[str, dict[int, list[str]]],
+        source_task: Optional[str] = None,
         csi_projection: Optional[nn.Module] = None,
     ) -> dict[str, dict]:
-        """Evaluate all predefined transfer pairs for *dataset_name*.
+        """Evaluate cross-task transfer from *source_task* to all other tasks.
+
+        When *source_task* is given, every other task in
+        ``DATASET_TASKS[dataset_name]`` becomes a target.  When it is
+        ``None``, all pairwise combinations are evaluated.
 
         Args:
+            dataset_name: Dataset identifier (e.g. ``"csibench"``).
+            model: Trained alignment model.
             target_dataloaders: ``{task_name: DataLoader}``
             target_class_texts_map: ``{task_name: {class_id: [texts]}}``
+            source_task: The task the model was trained on. If ``None``,
+                all pairwise directions are evaluated.
+            csi_projection: Optional CSI projection head override.
 
         Returns:
             ``{"{src}->{tgt}": metrics_dict}``
         """
-        pairs = self.TRANSFER_PAIRS.get(dataset_name, [])
-        if not pairs:
-            logger.warning("No transfer pairs defined for dataset '%s'.", dataset_name)
+        all_tasks = self.DATASET_TASKS.get(dataset_name, [])
+        if not all_tasks:
+            logger.warning("No tasks defined for dataset '%s'.", dataset_name)
             return {}
 
+        if source_task is not None:
+            targets = [t for t in all_tasks if t != source_task]
+        else:
+            targets = list(all_tasks)
+
         results: dict[str, dict] = {}
-        for src, tgt in pairs:
+        for tgt in targets:
             if tgt not in target_dataloaders or tgt not in target_class_texts_map:
                 logger.warning(
-                    "Skipping %s -> %s: missing dataloader or class texts.", src, tgt,
+                    "Skipping %s -> %s: missing dataloader or class texts.",
+                    source_task or "*", tgt,
                 )
                 continue
-            key = f"{src}->{tgt}"
+            src_label = source_task or "all"
+            key = f"{src_label}->{tgt}"
             results[key] = self.evaluate(
                 model=model,
-                source_task=src,
+                source_task=src_label,
                 target_task=tgt,
                 target_dataloader=target_dataloaders[tgt],
                 target_class_texts=target_class_texts_map[tgt],

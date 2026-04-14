@@ -1,0 +1,97 @@
+dataset: all
+task: multitask
+method: clip_infonce
+
+# Joint training across CSI-Bench (5 tasks) + SignFI + XRF55.
+# Task roots, registries, and embeddings are resolved by the launch script.
+multitask:
+  sampling: proportional
+  tasks:
+    # -- CSI-Bench --
+    - task_name: har
+      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench/multitask/har
+      h5_key: CSI_amps
+    - task_name: proximity
+      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench/multitask/proximity
+      h5_key: CSI_amps
+    - task_name: user_id
+      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench/multitask/user_id
+      h5_key: CSI_amps
+    - task_name: fall_detection
+      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench/fall_detection
+      h5_key: CSI_amps
+    - task_name: motion_source
+      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench/motion_source
+      h5_key: CSI_amps
+    # -- SignFI --
+    - task_name: sign_recognition
+      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/signfi/SignFi
+      h5_key: amplitude
+    # -- XRF55 --
+    - task_name: action_recognition
+      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/xrf55/XRF55
+      h5_key: auto
+
+dataset_config:
+  preprocessing:
+    input_channels: 1
+    target_subcarriers: 64
+    target_time_steps: 500
+    normalize: true
+
+csi_encoder:
+  name: resnet18_1d
+  pretrained: false
+  dropout: 0.1
+
+text_encoder:
+  name: clip_vit_b32
+  frozen: true
+
+projection:
+  dim: 512
+  hidden_dim: 1024
+  num_layers: 2
+  dropout: 0.1
+
+training:
+  batch_size: 128
+  learning_rate: 5.0e-4
+  weight_decay: 1.0e-4
+  max_epochs: 100
+  warmup_epochs: 5
+  scheduler: cosine
+  early_stopping_patience: 15
+  grad_clip: 1.0
+  num_workers: 4
+  prefetch_factor: 2
+  persistent_workers: true
+  seed: 42
+  preload: false
+
+  amp: true
+  amp_dtype: bfloat16
+  accumulation_steps: 1
+
+augmentation:
+  enabled: true
+  time_mask_ratio: 0.1
+  subcarrier_mask_ratio: 0.1
+  noise_std: 0.05
+  scale_min: 0.9
+  scale_max: 1.1
+  p: 0.5
+
+logging:
+  use_wandb: false
+  project_name: csi-text-alignment
+  log_every_n_steps: 50
+  checkpoint_dir: /home/sagemaker-user/Multimodal_CSI_Text/Model/checkpoints
+
+s3:
+  enabled: true
+  bucket: rnd-sagemaker
+  prefix: Multimodal_CSI_Text
+  sync_checkpoints: true
+  sync_evaluation: true
+  sync_dataset: true

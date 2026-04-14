@@ -363,6 +363,13 @@ def main() -> None:
         help="Directory containing per-task pair registries (e.g. data/generated_texts/csibench). "
              "If provided, class_texts are loaded from registries instead of raw templates.",
     )
+    parser.add_argument(
+        "--tasks",
+        nargs="+",
+        default=None,
+        help="Evaluate a multitask checkpoint on each listed task separately. "
+             "Produces per-task metrics under output_dir/<task>/.",
+    )
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -381,6 +388,59 @@ def main() -> None:
     state = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
     model.load_state_dict(state, strict=True)
 
+    # ------------------------------------------------------------------
+    # Multi-task evaluation: evaluate each task separately, then combine
+    # ------------------------------------------------------------------
+    if args.tasks:
+        all_results: dict[str, Any] = {}
+        base_out = Path(args.output_dir)
+        for eval_task in args.tasks:
+            logger.info("=== Evaluating task: %s ===", eval_task)
+            task_out = base_out / eval_task
+            task_out.mkdir(parents=True, exist_ok=True)
+
+            _apply_overrides(config, [f"task={eval_task}"])
+            eval_dataset = config.get("dataset", "csibench")
+
+            try:
+                reg_path_t = None
+                if args.registry_dir:
+                    cand = Path(args.registry_dir) / eval_task / "pair_registry.json"
+                    if cand.is_file():
+                        reg_path_t = str(cand)
+                ct = build_class_texts(eval_dataset, eval_task, registry_path=reg_path_t)
+                cfg_t = _loader_config_from_experiment(config, task=eval_task)
+                ld = build_dataloaders(cfg_t)
+
+                zs = run_zero_shot_evaluation(
+                    model=model,
+                    dataloader=ld["test"],
+                    class_texts=ct,
+                    text_encoder=text_encoder,
+                    text_projection=text_projection,
+                    csi_projection=csi_projection,
+                    device=str(device),
+                )
+                task_metrics = _strip_heavy(zs)
+            except Exception as e:
+                logger.warning("Task %s failed: %s", eval_task, e)
+                task_metrics = {"error": str(e)}
+
+            all_results[eval_task] = task_metrics
+            task_path = task_out / "metrics.json"
+            with open(task_path, "w", encoding="utf-8") as f:
+                json.dump({eval_task: task_metrics}, f, indent=2)
+            logger.info("  -> %s", task_path)
+
+        summary_path = base_out / "multitask_metrics.json"
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(all_results, f, indent=2)
+        logger.info("Multitask summary: %s", summary_path)
+        return
+
+    # ------------------------------------------------------------------
+    # Standard single-task evaluation
+    # ------------------------------------------------------------------
     dataset = config["dataset"]
     task = config.get("task", "har")
     out_dir = Path(args.output_dir)
@@ -424,11 +484,12 @@ def main() -> None:
 
     if "cross_task" in args.eval_protocols and dataset == "csibench":
         ct = CrossTaskTransfer(text_encoder, text_projection, device=str(device))
+        all_tasks = CrossTaskTransfer.DATASET_TASKS.get("csibench", [])
+        other_tasks = [t for t in all_tasks if t != task]
         target_loaders: dict[str, DataLoader] = {}
         target_texts: dict[str, dict[int, list[str]]] = {}
-        pairs = CrossTaskTransfer.TRANSFER_PAIRS.get("csibench", [])
-        for _, tgt in pairs:
-            if tgt not in target_loaders:
+        for tgt in other_tasks:
+            try:
                 cfg_t = _loader_config_from_experiment(config, task=tgt, multi_task=False)
                 ld = build_dataloaders(cfg_t)
                 target_loaders[tgt] = ld["test"]
@@ -438,13 +499,16 @@ def main() -> None:
                     if tgt_cand.is_file():
                         tgt_reg = str(tgt_cand)
                 target_texts[tgt] = build_class_texts("csibench", tgt, registry_path=tgt_reg)
+            except Exception as e:
+                logger.warning("Skipping cross-task target %s: %s", tgt, e)
         results["cross_task"] = _numpy_json(
             ct.evaluate_all_pairs(
                 "csibench",
                 model,
                 target_loaders,
                 target_texts,
-                csi_projection,
+                source_task=task,
+                csi_projection=csi_projection,
             )
         )
 
