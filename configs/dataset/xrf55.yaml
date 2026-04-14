@@ -3,7 +3,7 @@ source_prefix: ""
 
 tasks:
   action_recognition:
-    folder: XRF55
+    folder: action_recognition
     h5_key: auto
     type: standalone
 

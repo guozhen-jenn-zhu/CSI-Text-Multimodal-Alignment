@@ -68,7 +68,7 @@ declare -A SIGNFI_TASKS=(
     [sign_recognition]="signfi/sign_recognition"
 )
 declare -A XRF55_TASKS=(
-    [action_recognition]="xrf55/XRF55"
+    [action_recognition]="xrf55/action_recognition"
 )
 
 ALL_CSIBENCH_TASKS=(har proximity user_id fall_detection motion_source)

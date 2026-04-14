@@ -29,7 +29,7 @@ multitask:
       h5_key: amplitude
     # -- XRF55 --
     - task_name: action_recognition
-      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/xrf55/XRF55
+      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/xrf55/action_recognition
       h5_key: auto
 
 dataset_config:
