@@ -107,11 +107,11 @@ class Trainer:
         _set_seed(training_cfg.get("seed", 42) + rank)
 
         self.device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
-        self.max_epochs = training_cfg["max_epochs"]
-        self.patience = training_cfg.get("early_stopping_patience", 15)
-        self.grad_clip = training_cfg.get("grad_clip", 1.0)
-        self.log_every = config.get("logging", {}).get("log_every_n_steps", 50)
-        self.accumulation_steps = training_cfg.get("accumulation_steps", 1)
+        self.max_epochs = int(training_cfg["max_epochs"])
+        self.patience = int(training_cfg.get("early_stopping_patience", 15))
+        self.grad_clip = float(training_cfg.get("grad_clip", 1.0))
+        self.log_every = int(config.get("logging", {}).get("log_every_n_steps", 50))
+        self.accumulation_steps = int(training_cfg.get("accumulation_steps", 1))
 
         self.use_amp = training_cfg.get("amp", True) and torch.cuda.is_available()
         amp_dtype_str = training_cfg.get("amp_dtype", "bfloat16")
@@ -197,8 +197,14 @@ class Trainer:
         )
 
         txt_cfg = self.config.get("text_encoder", {})
-        self.text_encoder = build_text_encoder(name=txt_cfg.get("name", "clip_vit_b32"))
-        text_embed_dim = self.text_encoder.embed_dim
+        has_precomputed = self.config.get("text_embeddings_path") is not None
+        if has_precomputed:
+            text_embed_dim = proj_cfg.get("dim", 512)
+            if self.is_main:
+                logger.info("Using precomputed text embeddings — skipping text encoder load")
+        else:
+            self.text_encoder = build_text_encoder(name=txt_cfg.get("name", "clip_vit_b32"))
+            text_embed_dim = self.text_encoder.embed_dim
 
         self.csi_projection = ProjectionHead(
             input_dim=embed_dim,
@@ -326,8 +332,8 @@ class Trainer:
         training_cfg = self.config["training"]
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(),
-            lr=training_cfg.get("learning_rate", 1e-3),
-            weight_decay=training_cfg.get("weight_decay", 1e-5),
+            lr=float(training_cfg.get("learning_rate", 1e-3)),
+            weight_decay=float(training_cfg.get("weight_decay", 1e-5)),
         )
         self.scheduler = build_scheduler(self.optimizer, training_cfg)
 

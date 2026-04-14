@@ -69,25 +69,25 @@ def build_scheduler(
     if name == "cosine":
         return WarmupCosineScheduler(
             optimizer,
-            warmup_epochs=config.get("warmup_epochs", 5),
-            total_epochs=config.get("max_epochs", 100),
-            min_lr=config.get("min_lr", 1e-6),
+            warmup_epochs=int(config.get("warmup_epochs", 5)),
+            total_epochs=int(config.get("max_epochs", 100)),
+            min_lr=float(config.get("min_lr", 1e-6)),
         )
 
     if name == "step":
         return StepLR(
             optimizer,
-            step_size=config.get("step_size", 30),
-            gamma=config.get("gamma", 0.1),
+            step_size=int(config.get("step_size", 30)),
+            gamma=float(config.get("gamma", 0.1)),
         )
 
     if name == "plateau":
         return ReduceLROnPlateau(
             optimizer,
             mode="min",
-            factor=config.get("factor", 0.5),
-            patience=config.get("plateau_patience", 5),
-            min_lr=config.get("min_lr", 1e-6),
+            factor=float(config.get("factor", 0.5)),
+            patience=int(config.get("plateau_patience", 5)),
+            min_lr=float(config.get("min_lr", 1e-6)),
         )
 
     raise ValueError(
