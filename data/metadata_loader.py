@@ -155,6 +155,27 @@ class MetadataLoader:
 
         return direct
 
+    def file_exists(self, sample_id: str) -> bool:
+        """Check whether the H5 file for *sample_id* exists on disk."""
+        meta = self._index.get(sample_id)
+        if meta is None:
+            return False
+        return self._resolve_file_path(meta["file_path"]).is_file()
+
+    def filter_valid_ids(self, sample_ids: list[str]) -> list[str]:
+        """Return the subset of *sample_ids* whose H5 files exist on disk.
+
+        Logs a warning if any IDs are dropped.
+        """
+        valid = [sid for sid in sample_ids if self.file_exists(sid)]
+        n_dropped = len(sample_ids) - len(valid)
+        if n_dropped:
+            logger.warning(
+                "Dropped %d / %d samples with missing H5 files in %s",
+                n_dropped, len(sample_ids), self.task_root,
+            )
+        return valid
+
     def load_sample(self, sample_id: str) -> np.ndarray:
         """Load a single CSI sample from its H5 file.
 

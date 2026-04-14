@@ -110,7 +110,8 @@ class CSITextDataset(Dataset):
             h5_key=h5_key,
         )
 
-        self.sample_ids = self.loader.get_split_ids(split)
+        raw_ids = self.loader.get_split_ids(split)
+        self.sample_ids = self.loader.filter_valid_ids(raw_ids)
         self._id_to_idx = {sid: i for i, sid in enumerate(self.sample_ids)}
         self.num_samples = len(self.sample_ids)
 
