@@ -295,7 +295,7 @@ class Trainer:
         preproc = ds_cfg.get("preprocessing", {})
         training_cfg = self.config["training"]
 
-        task_root = self._resolve_task_root()
+        task_root = self.config.get("task_root") or self._resolve_task_root()
         h5_key = self._resolve_h5_key()
 
         loader_config: dict[str, Any] = {
