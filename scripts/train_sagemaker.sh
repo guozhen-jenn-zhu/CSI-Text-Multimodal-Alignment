@@ -237,6 +237,61 @@ train_task() {
 }
 
 # ------------------------------------------------------------------
+# Stage 5: Run evaluation
+# ------------------------------------------------------------------
+evaluate_task() {
+    local task_name="$1"
+
+    local task_root
+    task_root=$(resolve_task_root "$task_name")
+    local reg_dir
+    reg_dir=$(resolve_registry_dir "$task_name")
+    local reg_path="${reg_dir}/pair_registry.json"
+    local ckpt_path="${MODEL_ROOT}/checkpoints/${DATASET}/${METHOD}/best.pt"
+    local results_dir="${MODEL_ROOT}/results/${DATASET}/${task_name}/${METHOD}_${ENCODER}"
+
+    if [[ ! -f "$ckpt_path" ]]; then
+        log "ERROR: Checkpoint not found: ${ckpt_path}"
+        return 1
+    fi
+
+    log "Stage 5: Evaluating ${DATASET}/${task_name}"
+    log "  checkpoint: ${ckpt_path}"
+    log "  results:    ${results_dir}"
+
+    cd "$REPO_ROOT"
+    local registry_parent
+    registry_parent=$(dirname "$reg_dir")
+
+    python -m scripts.run_evaluate \
+        --checkpoint "$ckpt_path" \
+        --config "$CONFIG" \
+        --override \
+            "task_root=${task_root}" \
+            "registry_path=${reg_path}" \
+            "text_embeddings_path=${reg_dir}/text_embeddings_${TEXT_ENCODER}.h5" \
+        --eval_protocols zero_shot visualization \
+        --registry_dir "$registry_parent" \
+        --output_dir "$results_dir"
+
+    log "Evaluation results saved to: ${results_dir}"
+    if [[ -f "${results_dir}/metrics.json" ]]; then
+        log "Metrics:"
+        python3 -c "
+import json
+with open('${results_dir}/metrics.json') as f:
+    m = json.load(f)
+zs = m.get('zero_shot', {})
+print(f'  Zero-shot accuracy:    {zs.get(\"accuracy\", \"N/A\")}')
+print(f'  Zero-shot weighted F1: {zs.get(\"weighted_f1\", \"N/A\")}')
+lp = m.get('visualization', {}).get('linear_probe', {})
+if lp:
+    print(f'  Linear probe accuracy: {lp.get(\"accuracy\", \"N/A\")}')
+"
+    fi
+}
+
+# ------------------------------------------------------------------
 # Main
 # ------------------------------------------------------------------
 main() {
@@ -263,6 +318,7 @@ main() {
         check_registry "$t"
         generate_embeddings "$t"
         train_task "$t"
+        evaluate_task "$t"
     done
 
     log "=== All tasks complete ==="

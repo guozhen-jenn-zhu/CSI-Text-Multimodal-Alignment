@@ -150,6 +150,27 @@ def _dataset_yaml_defaults(dataset_name: str) -> dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
+def _resolve_task_root(config: dict, task: Optional[str] = None, dataset_name: Optional[str] = None) -> str:
+    """Resolve the task_root path, checking config overrides first."""
+    dn = dataset_name if dataset_name is not None else config["dataset"]
+    t = task if task is not None else config.get("task", "har")
+
+    if dn == config["dataset"] and t == config.get("task") and config.get("task_root"):
+        return config["task_root"]
+
+    ds_cfg = config.get("dataset_config", {}) if dn == config["dataset"] else _dataset_yaml_defaults(dn)
+    data_root = ds_cfg.get("data_root", f"data/processed/{dn}")
+
+    tasks = ds_cfg.get("tasks", {})
+    if isinstance(tasks, dict) and t in tasks:
+        folder = tasks[t].get("folder", t)
+    else:
+        folder = t
+
+    from pathlib import Path
+    return str(Path(data_root) / folder)
+
+
 def _loader_config_from_experiment(
     config: dict,
     task: Optional[str] = None,
@@ -161,19 +182,19 @@ def _loader_config_from_experiment(
     preproc = ds_cfg.get("preprocessing", {})
     training_cfg = config["training"]
     t = task if task is not None else config.get("task", "har")
-    data_root = ds_cfg.get("data_root", f"data/processed/{dn}")
+    task_root = _resolve_task_root(config, task=t, dataset_name=dn)
     reg_default = f"data/processed/{dn}/pair_registry.json"
     return {
-        "dataset_name": dn,
-        "task": t,
-        "data_root": data_root,
+        "task_root": task_root,
+        "h5_key": ds_cfg.get("h5_key", "CSI_amps"),
         "registry_path": config.get("registry_path", reg_default) if dn == config["dataset"] else reg_default,
         "text_embeddings_path": config.get("text_embeddings_path") if dn == config["dataset"] else None,
         "target_subcarriers": preproc.get("target_subcarriers", 64),
         "target_time_steps": preproc.get("target_time_steps", 500),
-        "batch_size": training_cfg.get("batch_size", 128),
-        "num_workers": training_cfg.get("num_workers", 4),
-        "multi_task": multi_task,
+        "batch_size": int(training_cfg.get("batch_size", 128)),
+        "num_workers": int(training_cfg.get("num_workers", 4)),
+        "prefetch_factor": int(training_cfg.get("prefetch_factor", 2)),
+        "persistent_workers": training_cfg.get("persistent_workers", True),
     }
 
 
