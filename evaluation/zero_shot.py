@@ -74,6 +74,25 @@ class ZeroShotClassifier:
         indices = sims.argmax(dim=-1).cpu().numpy()
         return np.array([self.class_ids[i] for i in indices])
 
+    @staticmethod
+    def _compute_far(cm: np.ndarray, class_ids: list[int]) -> dict:
+        """Compute per-class and macro false alarm rate from a confusion matrix.
+
+        For each class *c*, FAR_c = FP_c / (FP_c + TN_c), i.e. the fraction
+        of negative samples incorrectly classified as class *c*.
+        """
+        n = cm.shape[0]
+        total = cm.sum()
+        per_class: dict[int, float] = {}
+        for i, cid in enumerate(class_ids):
+            fp = cm[:, i].sum() - cm[i, i]
+            tp = cm[i, i]
+            fn = cm[i, :].sum() - cm[i, i]
+            tn = total - tp - fp - fn
+            per_class[cid] = float(fp / (fp + tn)) if (fp + tn) > 0 else 0.0
+        macro = float(np.mean(list(per_class.values()))) if per_class else 0.0
+        return {"per_class": per_class, "macro": macro}
+
     def evaluate(
         self, csi_embeddings: torch.Tensor, labels: np.ndarray,
     ) -> dict:
@@ -81,7 +100,7 @@ class ZeroShotClassifier:
 
         Returns:
             Dict with ``accuracy``, ``weighted_f1``, ``per_class_f1``,
-            ``confusion_matrix``, ``predictions``.
+            ``false_alarm_rate``, ``confusion_matrix``, ``predictions``.
         """
         preds = self.classify(csi_embeddings)
         acc = accuracy_score(labels, preds)
@@ -90,11 +109,13 @@ class ZeroShotClassifier:
             labels, preds, average=None, labels=self.class_ids, zero_division=0,
         )
         cm = confusion_matrix(labels, preds, labels=self.class_ids)
+        far = self._compute_far(cm, self.class_ids)
 
         return {
             "accuracy": float(acc),
             "weighted_f1": float(w_f1),
             "per_class_f1": {cid: float(f) for cid, f in zip(self.class_ids, per_f1)},
+            "false_alarm_rate": far,
             "confusion_matrix": cm,
             "predictions": preds,
         }
@@ -158,9 +179,11 @@ def run_zero_shot_evaluation(
     metrics["labels"] = labels
     metrics["prototypes"] = classifier.prototypes.cpu()
 
+    far_macro = metrics.get("false_alarm_rate", {}).get("macro", 0.0)
     logger.info(
-        "Zero-shot evaluation: accuracy=%.4f  weighted_f1=%.4f",
+        "Zero-shot evaluation: accuracy=%.4f  weighted_f1=%.4f  FAR=%.4f",
         metrics["accuracy"],
         metrics["weighted_f1"],
+        far_macro,
     )
     return metrics

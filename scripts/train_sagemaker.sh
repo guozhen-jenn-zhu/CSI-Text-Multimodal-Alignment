@@ -20,6 +20,9 @@
 #   # Train all CSI-Bench tasks sequentially
 #   TASK=all bash scripts/train_sagemaker.sh
 #
+#   # Train specific CSI-Bench tasks (comma-separated)
+#   TASK=har,fall_detection,proximity bash scripts/train_sagemaker.sh
+#
 #   # Train SignFI
 #   DATASET=signfi TASK=sign_recognition bash scripts/train_sagemaker.sh
 #
@@ -313,6 +316,9 @@ with open('${results_dir}/metrics.json') as f:
 zs = m.get('zero_shot', {})
 print(f'  Zero-shot accuracy:    {zs.get(\"accuracy\", \"N/A\")}')
 print(f'  Zero-shot weighted F1: {zs.get(\"weighted_f1\", \"N/A\")}')
+far = zs.get('false_alarm_rate', {})
+if far:
+    print(f'  False alarm rate:      {far.get(\"macro\", \"N/A\")}')
 lp = m.get('visualization', {}).get('linear_probe', {})
 if lp:
     print(f'  Linear probe accuracy: {lp.get(\"accuracy\", \"N/A\")}')
@@ -480,6 +486,8 @@ main() {
             log "ERROR: Unknown dataset '${DATASET}' for TASK=all"
             exit 1
         fi
+    elif [[ "$TASK" == *","* ]]; then
+        IFS=',' read -ra tasks <<< "$TASK"
     else
         tasks=("$TASK")
     fi
