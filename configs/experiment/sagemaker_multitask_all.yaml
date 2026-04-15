@@ -58,10 +58,10 @@ training:
   batch_size: 128
   learning_rate: 5.0e-4
   weight_decay: 1.0e-4
-  max_epochs: 100
+  max_epochs: 200
   warmup_epochs: 5
   scheduler: cosine
-  early_stopping_patience: 15
+  early_stopping_patience: 10
   grad_clip: 1.0
   num_workers: 4
   prefetch_factor: 2
