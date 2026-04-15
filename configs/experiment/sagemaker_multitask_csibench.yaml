@@ -52,7 +52,7 @@ training:
   max_epochs: 200
   warmup_epochs: 5
   scheduler: cosine
-  early_stopping_patience: 10
+  early_stopping_patience: 15
   grad_clip: 1.0
   num_workers: 4
   prefetch_factor: 2

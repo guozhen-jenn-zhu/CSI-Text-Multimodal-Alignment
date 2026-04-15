@@ -254,7 +254,7 @@ train_task() {
         "training.max_epochs=${MAX_EPOCHS}"
         "training.learning_rate=${LR}"
         "training.num_workers=${NUM_WORKERS}"
-        "logging.checkpoint_dir=${MODEL_ROOT}/checkpoints/${task_name}"
+        "logging.checkpoint_dir=${MODEL_ROOT}/checkpoints"
     )
 
     if [[ "$num_gpus" -gt 1 ]]; then
@@ -284,7 +284,7 @@ evaluate_task() {
     local reg_dir
     reg_dir=$(resolve_registry_dir "$task_name")
     local reg_path="${reg_dir}/pair_registry.json"
-    local ckpt_path="${MODEL_ROOT}/checkpoints/${task_name}/${DATASET}/${METHOD}/best.pt"
+    local ckpt_path="${MODEL_ROOT}/checkpoints/${DATASET}-${task_name}-${METHOD}/best.pt"
     local results_dir="${MODEL_ROOT}/results/${DATASET}/${task_name}/${METHOD}_${ENCODER}"
 
     if [[ ! -f "$ckpt_path" ]]; then
@@ -366,7 +366,7 @@ train_multitask() {
         "training.max_epochs=${MAX_EPOCHS}"
         "training.learning_rate=${LR}"
         "training.num_workers=${NUM_WORKERS}"
-        "logging.checkpoint_dir=${MODEL_ROOT}/checkpoints/multitask"
+        "logging.checkpoint_dir=${MODEL_ROOT}/checkpoints"
     )
 
     # Add per-task registry_path and text_embeddings_path overrides
@@ -407,7 +407,7 @@ evaluate_multitask() {
 
     local mt_dataset
     mt_dataset=$(python3 -c "import yaml; print(yaml.safe_load(open('${mt_config}'))['dataset'])")
-    local ckpt_path="${MODEL_ROOT}/checkpoints/multitask/${mt_dataset}/multitask/${METHOD}/best.pt"
+    local ckpt_path="${MODEL_ROOT}/checkpoints/${mt_dataset}-multitask-${METHOD}/best.pt"
     local base_results_dir="${MODEL_ROOT}/results/multitask_${mt_dataset}/${METHOD}_${ENCODER}"
 
     if [[ ! -f "$ckpt_path" ]]; then

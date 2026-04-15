@@ -171,8 +171,9 @@ class Trainer:
     def _setup_logging(self) -> None:
         log_cfg = self.config.get("logging", {})
         checkpoint_dir = Path(log_cfg.get("checkpoint_dir", "checkpoints"))
+        task = self.config.get("task", "unknown")
         self.checkpoint_dir = (
-            checkpoint_dir / self.config["dataset"] / self.config["method"]
+            checkpoint_dir / f"{self.config['dataset']}-{task}-{self.config['method']}"
         )
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -191,7 +192,7 @@ class Trainer:
             self.wandb_run = wandb.init(
                 project=log_cfg.get("project_name", "csi-text-alignment"),
                 config=self.config,
-                name=f"{self.config['dataset']}_{self.config['method']}",
+                name=f"{self.config['dataset']}_{self.config.get('task', 'unknown')}_{self.config['method']}",
             )
 
     def _build_components(self) -> None:
@@ -480,7 +481,7 @@ class Trainer:
                     self.best_val_loss = val_metrics["val_loss"]
                     patience_counter = 0
                     best_metrics = all_metrics.copy()
-                    self.save_checkpoint("best.pt", epoch, val_metrics["val_loss"])
+                    self.save_checkpoint(f"best_ep{epoch+1}_vl{val_metrics['val_loss']:.4f}.pt", epoch, val_metrics["val_loss"])
                     logger.info("  -> new best val_loss=%.4f -- checkpoint saved", self.best_val_loss)
                 else:
                     patience_counter += 1
@@ -491,7 +492,7 @@ class Trainer:
                         )
                         break
 
-                if (epoch + 1) % 10 == 0:
+                if (epoch + 1) % 30 == 0:
                     self.save_checkpoint(f"epoch_{epoch + 1}.pt", epoch, val_metrics["val_loss"])
             else:
                 if val_metrics["val_loss"] < self.best_val_loss:
@@ -541,11 +542,20 @@ class Trainer:
             path,
         )
 
-        if self.s3_syncer is not None and filename == "best.pt":
-            try:
-                self.s3_syncer.upload_checkpoint(str(path))
-            except Exception as e:
-                logger.warning("S3 checkpoint upload failed: %s", e)
+        if filename.startswith("best"):
+            for old in self.checkpoint_dir.glob("best_ep*_vl*.pt"):
+                if old.name != filename:
+                    old.unlink(missing_ok=True)
+            best_link = self.checkpoint_dir / "best.pt"
+            if best_link.is_symlink() or best_link.exists():
+                best_link.unlink()
+            best_link.symlink_to(filename)
+
+            if self.s3_syncer is not None:
+                try:
+                    self.s3_syncer.upload_checkpoint(str(path), key_name="best.pt")
+                except Exception as e:
+                    logger.warning("S3 checkpoint upload failed: %s", e)
 
     def load_checkpoint(self, filename: str) -> None:
         path = self.checkpoint_dir / filename
