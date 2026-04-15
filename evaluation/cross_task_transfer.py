@@ -13,17 +13,32 @@ from evaluation.zero_shot import ZeroShotClassifier, run_zero_shot_evaluation
 
 logger = logging.getLogger(__name__)
 
+TASK_TO_DATASET: dict[str, str] = {
+    "har": "csibench",
+    "fall_detection": "csibench",
+    "motion_source": "csibench",
+    "proximity": "csibench",
+    "user_id": "csibench",
+    "sign_recognition": "signfi",
+    "action_recognition": "xrf55",
+}
+
 
 class CrossTaskTransfer:
-    """Evaluate zero-shot transfer across tasks within a dataset.
+    """Evaluate zero-shot transfer across tasks within or across datasets.
 
     A model trained on a *source* task (e.g. HAR) is evaluated on every other
-    task in the same dataset using only the target task's text class
-    prototypes — no fine-tuning.
+    task using only the target task's text class prototypes — no fine-tuning.
     """
 
     DATASET_TASKS: dict[str, list[str]] = {
         "csibench": ["har", "fall_detection", "motion_source", "proximity", "user_id"],
+        "signfi": ["sign_recognition"],
+        "xrf55": ["action_recognition"],
+        "all": [
+            "har", "fall_detection", "motion_source", "proximity", "user_id",
+            "sign_recognition", "action_recognition",
+        ],
     }
 
     def __init__(

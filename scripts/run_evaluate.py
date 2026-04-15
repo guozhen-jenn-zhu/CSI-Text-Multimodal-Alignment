@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -24,12 +25,17 @@ from evaluation import (
     LinearProbe,
     run_zero_shot_evaluation,
 )
+from evaluation.cross_task_transfer import TASK_TO_DATASET
 from models.alignment import build_alignment_model
 from models.encoders import ProjectionHead, build_csi_encoder, build_text_encoder
 from training.train import _apply_overrides, _merge_configs
 
 logger = logging.getLogger(__name__)
 
+
+# ------------------------------------------------------------------
+# Model / config helpers (unchanged)
+# ------------------------------------------------------------------
 
 def _extract_model_kwargs(method_name: str, loss_cfg: dict, embed_dim: int) -> dict[str, Any]:
     kwargs: dict[str, Any] = {}
@@ -115,6 +121,10 @@ def build_model_from_config(config: dict, device: torch.device) -> tuple[torch.n
     return model, text_encoder, text_projection, csi_projection
 
 
+# ------------------------------------------------------------------
+# Text / data helpers (unchanged)
+# ------------------------------------------------------------------
+
 def _local_class_texts(entries: list[dict[str, Any]]) -> dict[int, list[str]]:
     """Build class_texts from raw template entries (fallback when no registry)."""
     ordered = sorted(entries, key=lambda e: e["class_id"])
@@ -175,7 +185,6 @@ def _resolve_task_root(config: dict, task: Optional[str] = None, dataset_name: O
     if dn == config["dataset"] and t == config.get("task") and config.get("task_root"):
         return config["task_root"]
 
-    # Check top-level multitask config for explicit per-task task_root
     mt_cfg_tasks = config.get("multitask", {}).get("tasks", [])
     if isinstance(mt_cfg_tasks, list):
         for entry in mt_cfg_tasks:
@@ -237,6 +246,10 @@ def cross_dataset_source_name(config: dict) -> str:
         return "signfi"
     return f"{d}_{t}"
 
+
+# ------------------------------------------------------------------
+# Ambient QA helpers (unchanged)
+# ------------------------------------------------------------------
 
 def _register_ambient_answers(
     aq: AmbientQA, config: dict, registry_dir: Optional[str] = None,
@@ -308,6 +321,10 @@ def _run_ambient_qa_multitask(
     return aq.evaluate_multi_attribute(csi_emb, tasks_and_labels, list(tasks_and_labels.keys()))
 
 
+# ------------------------------------------------------------------
+# Serialisation helpers
+# ------------------------------------------------------------------
+
 def _numpy_json(obj: Any) -> Any:
     if isinstance(obj, np.ndarray):
         return obj.tolist()
@@ -327,7 +344,7 @@ def _numpy_json(obj: Any) -> Any:
 
 
 def _strip_heavy(m: dict[str, Any]) -> dict[str, Any]:
-    """Strip large arrays from metrics to keep metrics.json small and readable."""
+    """Strip large arrays from metrics to keep JSON small and readable."""
     drop = {"csi_embeddings", "text_embeddings", "prototypes", "failure_details", "labels"}
     out = {k: v for k, v in m.items() if k not in drop}
     if "per_attribute" in out:
@@ -345,158 +362,443 @@ def _strip_heavy(m: dict[str, Any]) -> dict[str, Any]:
     return _numpy_json(out)
 
 
-def write_latex_tables(results: dict[str, Any], path: Path) -> None:
+def _deep_strip_heavy(obj: Any) -> Any:
+    """Recursively strip heavy arrays from nested dicts at any depth."""
+    _heavy = {"labels", "csi_embeddings", "text_embeddings", "prototypes", "failure_details"}
+    if isinstance(obj, dict):
+        out: dict[str, Any] = {}
+        for k, v in obj.items():
+            if k in _heavy:
+                continue
+            if k == "predictions":
+                if hasattr(v, "tolist"):
+                    out[k] = v[:200].tolist()
+                elif isinstance(v, list):
+                    out[k] = v[:200]
+                else:
+                    out[k] = v
+            elif k == "per_attribute" and isinstance(v, dict):
+                out[k] = {
+                    a: {x: y for x, y in d.items() if x != "predictions"}
+                    for a, d in v.items() if isinstance(d, dict)
+                }
+            else:
+                out[k] = _deep_strip_heavy(v)
+        return out
+    if isinstance(obj, list):
+        return [_deep_strip_heavy(x) for x in obj]
+    return obj
+
+
+def _save_json(data: Any, path: Path) -> None:
+    """Save JSON with numpy conversion, creating parent dirs as needed."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(_numpy_json(data), f, indent=2)
+
+
+# ------------------------------------------------------------------
+# Output directory
+# ------------------------------------------------------------------
+
+def _build_output_dir(
+    args_output_dir: str,
+    config: dict,
+    task: str,
+    no_timestamp: bool,
+    is_multitask: bool = False,
+) -> Path:
+    """Build a structured output directory path.
+
+    When using the default ``results``, auto-generates::
+
+        results/<dataset>/<task>/<method>_<encoder>/            (single-task)
+        results/multitask_<dataset>/<method>_<encoder>/          (multi-task)
+
+    A timestamp subdirectory is appended unless *no_timestamp* is set.
+    """
+    dataset = config.get("dataset", "csibench")
+    method = config.get("method", "unknown")
+    encoder = config.get("csi_encoder", {}).get("name", "unknown")
+
+    if args_output_dir == "results":
+        if is_multitask:
+            base = Path("results") / f"multitask_{dataset}" / f"{method}_{encoder}"
+        else:
+            base = Path("results") / dataset / task / f"{method}_{encoder}"
+    else:
+        base = Path(args_output_dir)
+
+    if no_timestamp:
+        out = base
+    else:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out = base / stamp
+
+    out.mkdir(parents=True, exist_ok=True)
+    return out
+
+
+# ------------------------------------------------------------------
+# Summary / LaTeX generation
+# ------------------------------------------------------------------
+
+def generate_summary_md(
+    results: dict[str, Any],
+    checkpoint_path: str,
+    config_path: str,
+    dataset: str,
+    task: str,
+) -> str:
+    """Generate a human-readable Markdown summary of evaluation results."""
     lines = [
-        "% Auto-generated by run_evaluate.py",
+        "# Evaluation Summary",
+        "",
+        f"- **Checkpoint**: `{checkpoint_path}`",
+        f"- **Config**: `{config_path}`",
+        f"- **Dataset**: {dataset}",
+        f"- **Task**: {task}",
+        f"- **Method**: {results.get('config', {}).get('method', 'N/A')}",
+        f"- **Date**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+    ]
+
+    zs = results.get("zero_shot")
+    if zs and "accuracy" in zs:
+        lines.extend([
+            "## Zero-Shot Classification",
+            "",
+            "| Metric | Value |",
+            "|--------|-------|",
+            f"| Accuracy | {zs['accuracy']:.4f} |",
+            f"| Weighted F1 | {zs.get('weighted_f1', 0):.4f} |",
+        ])
+        far = zs.get("false_alarm_rate", {}).get("macro")
+        if far is not None:
+            lines.append(f"| FAR (macro) | {far:.4f} |")
+        lines.append("")
+
+        pcf1 = zs.get("per_class_f1", {})
+        if pcf1:
+            lines.extend(["### Per-Class F1", "", "| Class | F1 |", "|-------|-----|"])
+            for cid, f1 in sorted(pcf1.items(), key=lambda x: str(x[0])):
+                lines.append(f"| {cid} | {f1:.4f} |")
+            lines.append("")
+
+    aq = results.get("ambient_qa")
+    if aq and "joint_accuracy" in aq:
+        lines.extend([
+            "## Ambient QA",
+            "",
+            f"- **Joint Accuracy**: {aq['joint_accuracy']:.4f}",
+            "",
+        ])
+
+    ct = results.get("cross_task")
+    if ct and isinstance(ct, dict):
+        valid_pairs = {k: v for k, v in ct.items() if isinstance(v, dict) and "accuracy" in v}
+        if valid_pairs:
+            lines.extend([
+                "## Cross-Task Transfer",
+                "",
+                "| Direction | Accuracy | Weighted F1 |",
+                "|-----------|----------|-------------|",
+            ])
+            for pair, res in sorted(valid_pairs.items()):
+                lines.append(f"| {pair} | {res['accuracy']:.4f} | {res.get('weighted_f1', 0):.4f} |")
+            lines.append("")
+
+    cd = results.get("cross_dataset")
+    if cd and isinstance(cd, dict):
+        valid_pairs = {k: v for k, v in cd.items() if isinstance(v, dict) and "accuracy" in v}
+        if valid_pairs:
+            lines.extend([
+                "## Cross-Dataset Transfer",
+                "",
+                "| Direction | Accuracy | Weighted F1 |",
+                "|-----------|----------|-------------|",
+            ])
+            for pair, res in sorted(valid_pairs.items()):
+                lines.append(f"| {pair} | {res['accuracy']:.4f} | {res.get('weighted_f1', 0):.4f} |")
+            lines.append("")
+
+    viz = results.get("visualization")
+    if viz and isinstance(viz, dict):
+        lp = viz.get("linear_probe", {})
+        if lp and "accuracy" in lp:
+            lines.extend([
+                "## Linear Probe",
+                "",
+                f"- **Accuracy**: {lp['accuracy']:.4f}",
+                "",
+            ])
+
+    return "\n".join(lines)
+
+
+def generate_multitask_summary_md(
+    all_results: dict[str, dict[str, Any]],
+    checkpoint_path: str,
+    config_path: str,
+    dataset: str,
+) -> str:
+    """Generate a combined summary for multitask evaluation across all tasks."""
+    lines = [
+        "# Multitask Evaluation Summary",
+        "",
+        f"- **Checkpoint**: `{checkpoint_path}`",
+        f"- **Config**: `{config_path}`",
+        f"- **Dataset**: {dataset}",
+        f"- **Date**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        "## Per-Task Zero-Shot Results",
+        "",
+        "| Task | Accuracy | Weighted F1 | FAR (macro) |",
+        "|------|----------|-------------|-------------|",
+    ]
+
+    for task_name, task_res in sorted(all_results.items()):
+        zs = task_res.get("zero_shot", task_res)
+        if "error" in task_res and "accuracy" not in zs:
+            lines.append(f"| {task_name} | ERROR | ERROR | ERROR |")
+            continue
+        acc = zs.get("accuracy", 0)
+        f1 = zs.get("weighted_f1", 0)
+        far_obj = zs.get("false_alarm_rate", {})
+        far = far_obj.get("macro", 0) if isinstance(far_obj, dict) else 0
+        lines.append(f"| {task_name} | {acc:.4f} | {f1:.4f} | {far:.4f} |")
+
+    lines.append("")
+
+    has_cross_task = False
+    for task_name, task_res in sorted(all_results.items()):
+        ct = task_res.get("cross_task", {})
+        valid = {k: v for k, v in ct.items() if isinstance(v, dict) and "accuracy" in v}
+        if valid:
+            if not has_cross_task:
+                lines.extend(["## Cross-Task Transfer", ""])
+                has_cross_task = True
+            lines.extend([
+                f"### Source: {task_name}",
+                "",
+                "| Target | Accuracy | Weighted F1 |",
+                "|--------|----------|-------------|",
+            ])
+            for pair, res in sorted(valid.items()):
+                lines.append(f"| {pair} | {res['accuracy']:.4f} | {res.get('weighted_f1', 0):.4f} |")
+            lines.append("")
+
+    has_lp = False
+    for task_name, task_res in sorted(all_results.items()):
+        lp = task_res.get("visualization", {}).get("linear_probe", {})
+        if lp and "accuracy" in lp:
+            if not has_lp:
+                lines.extend(["## Linear Probe", "", "| Task | Accuracy |", "|------|----------|"])
+                has_lp = True
+            lines.append(f"| {task_name} | {lp['accuracy']:.4f} |")
+    if has_lp:
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def write_latex_tables(results: dict[str, Any], path: Path) -> None:
+    """Write comprehensive LaTeX tables for all evaluation protocols."""
+    lines = ["% Auto-generated by run_evaluate.py", ""]
+
+    zs = results.get("zero_shot")
+    if zs and "accuracy" in zs:
+        far = zs.get("false_alarm_rate", {}).get("macro", 0)
+        lines.extend([
+            "\\begin{table}[t]",
+            "\\centering",
+            "\\begin{tabular}{lccc}",
+            "\\hline",
+            "Protocol & Accuracy & Weighted F1 & FAR \\\\",
+            "\\hline",
+            f"Zero-shot & {zs['accuracy']:.4f} & {zs.get('weighted_f1', 0):.4f} & {far:.4f} \\\\",
+        ])
+        aq = results.get("ambient_qa")
+        if aq and "joint_accuracy" in aq:
+            lines.append(
+                f"Ambient QA (joint) & {aq['joint_accuracy']:.4f} & --- & --- \\\\"
+            )
+        lp = results.get("visualization", {}).get("linear_probe", {})
+        if lp and "accuracy" in lp:
+            lines.append(
+                f"Linear Probe & {lp['accuracy']:.4f} & --- & --- \\\\"
+            )
+        lines.extend([
+            "\\hline",
+            "\\end{tabular}",
+            "\\caption{Evaluation summary.}",
+            "\\end{table}",
+            "",
+        ])
+
+    ct = results.get("cross_task", {})
+    valid_ct = {k: v for k, v in ct.items() if isinstance(v, dict) and "accuracy" in v}
+    if valid_ct:
+        lines.extend([
+            "\\begin{table}[t]",
+            "\\centering",
+            "\\begin{tabular}{lcc}",
+            "\\hline",
+            "Direction & Accuracy & Weighted F1 \\\\",
+            "\\hline",
+        ])
+        for pair, res in sorted(valid_ct.items()):
+            safe_pair = pair.replace("_", "\\_").replace("->", " $\\rightarrow$ ")
+            lines.append(f"{safe_pair} & {res['accuracy']:.4f} & {res.get('weighted_f1', 0):.4f} \\\\")
+        lines.extend([
+            "\\hline",
+            "\\end{tabular}",
+            "\\caption{Cross-task transfer results.}",
+            "\\end{table}",
+            "",
+        ])
+
+    cd = results.get("cross_dataset", {})
+    valid_cd = {k: v for k, v in cd.items() if isinstance(v, dict) and "accuracy" in v}
+    if valid_cd:
+        lines.extend([
+            "\\begin{table}[t]",
+            "\\centering",
+            "\\begin{tabular}{lcc}",
+            "\\hline",
+            "Direction & Accuracy & Weighted F1 \\\\",
+            "\\hline",
+        ])
+        for pair, res in sorted(valid_cd.items()):
+            safe_pair = pair.replace("_", "\\_").replace("->", " $\\rightarrow$ ")
+            lines.append(f"{safe_pair} & {res['accuracy']:.4f} & {res.get('weighted_f1', 0):.4f} \\\\")
+        lines.extend([
+            "\\hline",
+            "\\end{tabular}",
+            "\\caption{Cross-dataset transfer results.}",
+            "\\end{table}",
+            "",
+        ])
+
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _write_multitask_latex_tables(all_results: dict[str, dict], path: Path) -> None:
+    """Write LaTeX tables summarising multitask per-task results."""
+    lines = ["% Auto-generated by run_evaluate.py (multitask)", ""]
+
+    lines.extend([
         "\\begin{table}[t]",
         "\\centering",
         "\\begin{tabular}{lccc}",
         "\\hline",
-        "Protocol & Accuracy & Weighted F1 & FAR \\\\",
+        "Task & Accuracy & Weighted F1 & FAR \\\\",
         "\\hline",
-    ]
-    zs = results.get("zero_shot")
-    if zs and "accuracy" in zs:
-        far = zs.get("false_alarm_rate", {}).get("macro", 0)
-        lines.append(
-            f"Zero-shot & {zs['accuracy']:.4f} & {zs.get('weighted_f1', 0):.4f} & {far:.4f} \\\\"
-        )
-    aq = results.get("ambient_qa")
-    if aq and "joint_accuracy" in aq:
-        lines.append(
-            f"Ambient QA (joint) & {aq['joint_accuracy']:.4f} & --- & --- \\\\"
-        )
-    lines.extend(["\\hline", "\\end{tabular}", "\\caption{Evaluation summary.}", "\\end{table}"])
+    ])
+    for task_name, task_res in sorted(all_results.items()):
+        zs = task_res.get("zero_shot", task_res)
+        if "accuracy" not in zs:
+            continue
+        far_obj = zs.get("false_alarm_rate", {})
+        far = far_obj.get("macro", 0) if isinstance(far_obj, dict) else 0
+        safe_name = task_name.replace("_", "\\_")
+        lines.append(f"{safe_name} & {zs['accuracy']:.4f} & {zs.get('weighted_f1', 0):.4f} & {far:.4f} \\\\")
+    lines.extend([
+        "\\hline",
+        "\\end{tabular}",
+        "\\caption{Multitask per-task zero-shot results.}",
+        "\\end{table}",
+        "",
+    ])
+
+    has_ct = False
+    for task_name, task_res in sorted(all_results.items()):
+        ct = task_res.get("cross_task", {})
+        valid_ct = {k: v for k, v in ct.items() if isinstance(v, dict) and "accuracy" in v}
+        if valid_ct:
+            if not has_ct:
+                lines.extend([
+                    "\\begin{table}[t]",
+                    "\\centering",
+                    "\\begin{tabular}{lcc}",
+                    "\\hline",
+                    "Direction & Accuracy & Weighted F1 \\\\",
+                    "\\hline",
+                ])
+                has_ct = True
+            for pair, res in sorted(valid_ct.items()):
+                safe_pair = pair.replace("_", "\\_").replace("->", " $\\rightarrow$ ")
+                lines.append(f"{safe_pair} & {res['accuracy']:.4f} & {res.get('weighted_f1', 0):.4f} \\\\")
+    if has_ct:
+        lines.extend([
+            "\\hline",
+            "\\end{tabular}",
+            "\\caption{Cross-task transfer results.}",
+            "\\end{table}",
+            "",
+        ])
+
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    parser = argparse.ArgumentParser(description="Evaluate a trained CSI-Text alignment checkpoint")
-    parser.add_argument("--checkpoint", required=True, help="Path to trained checkpoint (.pt)")
-    parser.add_argument("--config", required=True, help="Experiment YAML used for training")
-    parser.add_argument(
-        "--override",
-        nargs="*",
-        default=[],
-        help="Optional config overrides key.subkey=value",
-    )
-    parser.add_argument(
-        "--eval_protocols",
-        nargs="+",
-        default=["zero_shot", "ambient_qa", "cross_task", "cross_dataset", "visualization"],
-        help="Protocols to run",
-    )
-    parser.add_argument("--output_dir", default="results", help="Directory for metrics and tables")
-    parser.add_argument(
-        "--registry_dir",
-        default=None,
-        help="Directory containing per-task pair registries (e.g. data/generated_texts/csibench). "
-             "If provided, class_texts are loaded from registries instead of raw templates.",
-    )
-    parser.add_argument(
-        "--tasks",
-        nargs="+",
-        default=None,
-        help="Evaluate a multitask checkpoint on each listed task separately. "
-             "Produces per-task metrics under output_dir/<task>/.",
-    )
-    args = parser.parse_args()
+# ------------------------------------------------------------------
+# Core evaluation for a single task
+# ------------------------------------------------------------------
 
-    with open(args.config) as f:
-        config: dict[str, Any] = yaml.safe_load(f)
-    config = _merge_configs(config)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    ckpt_path = Path(args.checkpoint)
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
-    if isinstance(ckpt, dict) and "config" in ckpt:
-        file_ds_cfg = config.get("dataset_config", {})
-        config = _merge_configs(ckpt["config"])
-        # Preserve environment-specific settings (e.g. data_root) from the
-        # file config as defaults; checkpoint config values win when present.
-        merged_ds = dict(file_ds_cfg)
-        merged_ds.update(config.get("dataset_config", {}))
-        config["dataset_config"] = merged_ds
-    if args.override:
-        _apply_overrides(config, args.override)
-
-    model, text_encoder, text_projection, csi_projection = build_model_from_config(config, device)
-    state = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
-    model.load_state_dict(state, strict=True)
-
-    # ------------------------------------------------------------------
-    # Multi-task evaluation: evaluate each task separately, then combine
-    # ------------------------------------------------------------------
-    if args.tasks:
-        all_results: dict[str, Any] = {}
-        base_out = Path(args.output_dir)
-        config.pop("task_root", None)
-        for eval_task in args.tasks:
-            logger.info("=== Evaluating task: %s ===", eval_task)
-            task_out = base_out / eval_task
-            task_out.mkdir(parents=True, exist_ok=True)
-
-            _apply_overrides(config, [f"task={eval_task}"])
-            eval_dataset = config.get("dataset", "csibench")
-
-            try:
-                reg_path_t = None
-                if args.registry_dir:
-                    cand = Path(args.registry_dir) / eval_task / "pair_registry.json"
-                    if cand.is_file():
-                        reg_path_t = str(cand)
-                ct = build_class_texts(eval_dataset, eval_task, registry_path=reg_path_t)
-                cfg_t = _loader_config_from_experiment(config, task=eval_task)
-                ld = build_dataloaders(cfg_t)
-
-                zs = run_zero_shot_evaluation(
-                    model=model,
-                    dataloader=ld["test"],
-                    class_texts=ct,
-                    text_encoder=text_encoder,
-                    text_projection=text_projection,
-                    csi_projection=csi_projection,
-                    device=str(device),
-                )
-                task_metrics = _strip_heavy(zs)
-            except Exception as e:
-                logger.warning("Task %s failed: %s", eval_task, e)
-                task_metrics = {"error": str(e)}
-
-            all_results[eval_task] = task_metrics
-            task_path = task_out / "metrics.json"
-            with open(task_path, "w", encoding="utf-8") as f:
-                json.dump({eval_task: task_metrics}, f, indent=2)
-            logger.info("  -> %s", task_path)
-
-        summary_path = base_out / "multitask_metrics.json"
-        with open(summary_path, "w", encoding="utf-8") as f:
-            json.dump(all_results, f, indent=2)
-        logger.info("Multitask summary: %s", summary_path)
-        return
-
-    # ------------------------------------------------------------------
-    # Standard single-task evaluation
-    # ------------------------------------------------------------------
-    dataset = config["dataset"]
-    task = config.get("task", "har")
-    out_dir = Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    results: dict[str, Any] = {"config": {"dataset": dataset, "task": task, "method": config.get("method")}}
-
-    reg_path = None
-    if args.registry_dir:
-        candidate = Path(args.registry_dir) / task / "pair_registry.json"
+def _resolve_registry_path(
+    task: str,
+    registry_dir: Optional[str],
+    config: dict,
+    dataset_name: Optional[str] = None,
+) -> Optional[str]:
+    """Find the pair registry for *task*, checking registry_dir then task_root."""
+    if registry_dir:
+        candidate = Path(registry_dir) / task / "pair_registry.json"
         if candidate.is_file():
-            reg_path = str(candidate)
+            return str(candidate)
+    dn = dataset_name or TASK_TO_DATASET.get(task, config.get("dataset", "csibench"))
+    task_root = _resolve_task_root(config, task=task, dataset_name=dn)
+    fallback = Path(task_root) / "pair_registry.json"
+    if fallback.is_file():
+        return str(fallback)
+    return None
+
+
+def _evaluate_single_task(
+    model: torch.nn.Module,
+    text_encoder: torch.nn.Module,
+    text_projection: Optional[torch.nn.Module],
+    csi_projection: torch.nn.Module,
+    config: dict[str, Any],
+    dataset: str,
+    task: str,
+    out_dir: Path,
+    eval_protocols: list[str],
+    registry_dir: Optional[str],
+    device: torch.device,
+    cross_task_dataset: Optional[str] = None,
+) -> dict[str, Any]:
+    """Run all requested protocols for a single task and save results.
+
+    Args:
+        cross_task_dataset: Dataset key for ``CrossTaskTransfer.DATASET_TASKS``
+            lookup.  When ``None``, *dataset* is used.  For multitask_all
+            evaluations this should be ``"all"`` so that cross-task covers
+            tasks from all datasets.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    results: dict[str, Any] = {
+        "config": {"dataset": dataset, "task": task, "method": config.get("method")},
+    }
+
+    reg_path = _resolve_registry_path(task, registry_dir, config, dataset_name=dataset)
     class_texts = build_class_texts(dataset, task, registry_path=reg_path)
-    loader_cfg = _loader_config_from_experiment(config)
+    loader_cfg = _loader_config_from_experiment(config, task=task, dataset_name=dataset)
     loaders = build_dataloaders(loader_cfg)
 
+    # --- Zero-shot ---
     zs_full: Optional[dict[str, Any]] = None
-    if "zero_shot" in args.eval_protocols or "visualization" in args.eval_protocols:
+    if "zero_shot" in eval_protocols or "visualization" in eval_protocols:
         zs_full = run_zero_shot_evaluation(
             model=model,
             dataloader=loaders["test"],
@@ -506,60 +808,88 @@ def main() -> None:
             csi_projection=csi_projection,
             device=str(device),
         )
-    if "zero_shot" in args.eval_protocols and zs_full is not None:
+    if "zero_shot" in eval_protocols and zs_full is not None:
         results["zero_shot"] = _strip_heavy(zs_full)
 
-    if "ambient_qa" in args.eval_protocols and dataset == "csibench":
+    # --- Ambient QA ---
+    if "ambient_qa" in eval_protocols and dataset == "csibench":
         try:
             aq_res = _run_ambient_qa_multitask(
                 model, text_encoder, text_projection, csi_projection, config, device,
-                registry_dir=args.registry_dir,
+                registry_dir=registry_dir,
             )
             results["ambient_qa"] = _strip_heavy(aq_res)
         except Exception as e:
             logger.warning("Ambient QA skipped: %s", e)
             results["ambient_qa"] = {"error": str(e)}
 
-    if "cross_task" in args.eval_protocols and dataset == "csibench":
-        ct = CrossTaskTransfer(text_encoder, text_projection, device=str(device))
-        all_tasks = CrossTaskTransfer.DATASET_TASKS.get("csibench", [])
+    # --- Cross-task transfer ---
+    ct_dataset = cross_task_dataset or dataset
+    if "cross_task" in eval_protocols and ct_dataset in CrossTaskTransfer.DATASET_TASKS:
+        ct_obj = CrossTaskTransfer(text_encoder, text_projection, device=str(device))
+        all_tasks = CrossTaskTransfer.DATASET_TASKS[ct_dataset]
         other_tasks = [t for t in all_tasks if t != task]
-        target_loaders: dict[str, DataLoader] = {}
-        target_texts: dict[str, dict[int, list[str]]] = {}
-        for tgt in other_tasks:
-            try:
-                cfg_t = _loader_config_from_experiment(config, task=tgt, multi_task=False)
-                ld = build_dataloaders(cfg_t)
-                target_loaders[tgt] = ld["test"]
-                tgt_reg = None
-                if args.registry_dir:
-                    tgt_cand = Path(args.registry_dir) / tgt / "pair_registry.json"
-                    if tgt_cand.is_file():
-                        tgt_reg = str(tgt_cand)
-                target_texts[tgt] = build_class_texts("csibench", tgt, registry_path=tgt_reg)
-            except Exception as e:
-                logger.warning("Skipping cross-task target %s: %s", tgt, e)
-        raw_ct = ct.evaluate_all_pairs(
-            "csibench",
-            model,
-            target_loaders,
-            target_texts,
-            source_task=task,
-            csi_projection=csi_projection,
-        )
-        if raw_ct:
-            results["cross_task"] = {
-                k: _strip_heavy(v) if isinstance(v, dict) else v
-                for k, v in raw_ct.items()
-            }
-            logger.info("Cross-task: %d pairs saved to metrics", len(raw_ct))
-        else:
-            logger.warning("Cross-task evaluation produced no results (all targets skipped)")
 
-    if "cross_dataset" in args.eval_protocols:
+        if other_tasks:
+            ct_dir = out_dir / "cross_task"
+            ct_dir.mkdir(parents=True, exist_ok=True)
+
+            target_loaders: dict[str, DataLoader] = {}
+            target_texts: dict[str, dict[int, list[str]]] = {}
+            ct_errors: dict[str, str] = {}
+
+            for tgt in other_tasks:
+                try:
+                    tgt_dataset = TASK_TO_DATASET.get(tgt, dataset)
+                    cfg_t = _loader_config_from_experiment(
+                        config, task=tgt, multi_task=False, dataset_name=tgt_dataset,
+                    )
+                    ld = build_dataloaders(cfg_t)
+                    target_loaders[tgt] = ld["test"]
+                    tgt_reg = _resolve_registry_path(tgt, registry_dir, config, tgt_dataset)
+                    target_texts[tgt] = build_class_texts(tgt_dataset, tgt, registry_path=tgt_reg)
+                except Exception as e:
+                    logger.warning("Cross-task target %s failed: %s", tgt, e)
+                    ct_errors[tgt] = str(e)
+
+            raw_ct = ct_obj.evaluate_all_pairs(
+                ct_dataset,
+                model,
+                target_loaders,
+                target_texts,
+                source_task=task,
+                csi_projection=csi_projection,
+            )
+
+            ct_results: dict[str, Any] = {}
+            for key, val in raw_ct.items():
+                stripped = _strip_heavy(val) if isinstance(val, dict) else val
+                ct_results[key] = stripped
+                safe_key = key.replace("->", "_to_")
+                _save_json(stripped, ct_dir / f"{safe_key}.json")
+
+            for tgt, err_msg in ct_errors.items():
+                err_key = f"{task}->{tgt}"
+                ct_results[err_key] = {"error": err_msg}
+
+            results["cross_task"] = ct_results
+
+            _save_json(
+                {"source_task": task, "num_targets": len(other_tasks),
+                 "num_successful": len(raw_ct), "num_failed": len(ct_errors),
+                 "pairs": ct_results},
+                ct_dir / "summary.json",
+            )
+            logger.info("Cross-task: %d/%d pairs evaluated", len(raw_ct), len(other_tasks))
+        else:
+            logger.info("Cross-task: no other tasks for dataset '%s'", ct_dataset)
+
+    # --- Cross-dataset transfer ---
+    if "cross_dataset" in eval_protocols:
         src = cross_dataset_source_name(config)
         cdt = CrossDatasetTransfer(text_encoder, text_projection, device=str(device))
         target_configs: dict[str, dict[str, Any]] = {}
+        cd_errors: dict[str, str] = {}
         for _s, tgt in CrossDatasetTransfer.TRANSFER_DIRECTIONS:
             if _s != src:
                 continue
@@ -576,11 +906,7 @@ def main() -> None:
                 elif tgt == "csibench_har":
                     cfg_t = _loader_config_from_experiment(config, task="har", dataset_name="csibench")
                     ld = build_dataloaders(cfg_t)["test"]
-                    har_reg = None
-                    if args.registry_dir:
-                        har_cand = Path(args.registry_dir) / "har" / "pair_registry.json"
-                        if har_cand.is_file():
-                            har_reg = str(har_cand)
+                    har_reg = _resolve_registry_path("har", registry_dir, config, "csibench")
                     target_configs[tgt] = {
                         "dataloader": ld,
                         "class_texts": build_class_texts("csibench", "har", registry_path=har_reg),
@@ -596,11 +922,35 @@ def main() -> None:
                     }
             except Exception as e:
                 logger.warning("Cross-dataset target %s: %s", tgt, e)
-        results["cross_dataset"] = _numpy_json(
-            cdt.evaluate_all_directions(model, src, target_configs, csi_projection)
-        )
+                cd_errors[tgt] = str(e)
 
-    if "visualization" in args.eval_protocols and zs_full is not None:
+        raw_cd = cdt.evaluate_all_directions(model, src, target_configs, csi_projection)
+
+        cd_results: dict[str, Any] = {}
+        if raw_cd or cd_errors:
+            cd_dir = out_dir / "cross_dataset"
+            cd_dir.mkdir(parents=True, exist_ok=True)
+
+            for key, val in raw_cd.items():
+                stripped = _strip_heavy(val) if isinstance(val, dict) else _numpy_json(val)
+                cd_results[key] = stripped
+                safe_key = key.replace("->", "_to_")
+                _save_json(stripped, cd_dir / f"{safe_key}.json")
+
+            for tgt, err_msg in cd_errors.items():
+                err_key = f"{src}->{tgt}"
+                cd_results[err_key] = {"error": err_msg}
+
+            _save_json(
+                {"source": src, "num_successful": len(raw_cd),
+                 "num_failed": len(cd_errors), "pairs": cd_results},
+                cd_dir / "summary.json",
+            )
+
+        results["cross_dataset"] = cd_results
+
+    # --- Visualization + Linear Probe ---
+    if "visualization" in eval_protocols and zs_full is not None:
         proto = zs_full["prototypes"].numpy()
         csi_np = zs_full["csi_embeddings"].numpy()
         labels = zs_full["labels"]
@@ -630,41 +980,176 @@ def main() -> None:
             ),
         }
 
-    metrics_path = out_dir / "metrics.json"
-    if metrics_path.is_file():
-        try:
-            with open(metrics_path) as f:
-                existing = json.load(f)
-            for k, v in results.items():
-                existing[k] = v
-            results = existing
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning("Could not load existing metrics.json, writing fresh: %s", e)
+    # Save combined metrics.json
+    clean_results = _deep_strip_heavy(_numpy_json(results))
+    _save_json(clean_results, out_dir / "metrics.json")
+    logger.info("Saved %s", out_dir / "metrics.json")
 
-    # Final cleanup: strip large arrays from all protocol results so
-    # metrics.json stays small and readable (even after merging old data).
-    _heavy_keys = {"labels", "csi_embeddings", "text_embeddings", "prototypes"}
-    for section in results.values():
-        if not isinstance(section, dict):
-            continue
-        for hk in _heavy_keys:
-            section.pop(hk, None)
-        if "predictions" in section and isinstance(section["predictions"], (list, np.ndarray)):
-            p = section["predictions"]
-            section["predictions"] = (p[:200].tolist() if hasattr(p, "tolist") else p[:200])
-        for sub in section.values():
-            if not isinstance(sub, dict):
-                continue
-            for hk in _heavy_keys:
-                sub.pop(hk, None)
-            if "predictions" in sub and isinstance(sub["predictions"], (list, np.ndarray)):
-                p = sub["predictions"]
-                sub["predictions"] = (p[:200].tolist() if hasattr(p, "tolist") else p[:200])
+    return results
 
-    with open(metrics_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2)
-    write_latex_tables(results, out_dir / "tables.tex")
-    logger.info("Wrote %s and %s", metrics_path, out_dir / "tables.tex")
+
+# ------------------------------------------------------------------
+# Main
+# ------------------------------------------------------------------
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    parser = argparse.ArgumentParser(description="Evaluate a trained CSI-Text alignment checkpoint")
+    parser.add_argument("--checkpoint", required=True, help="Path to trained checkpoint (.pt)")
+    parser.add_argument("--config", required=True, help="Experiment YAML used for training")
+    parser.add_argument(
+        "--override",
+        nargs="*",
+        default=[],
+        help="Optional config overrides key.subkey=value",
+    )
+    parser.add_argument(
+        "--eval_protocols",
+        nargs="+",
+        default=["zero_shot", "ambient_qa", "cross_task", "cross_dataset", "visualization"],
+        help="Protocols to run",
+    )
+    parser.add_argument("--output_dir", default="results", help="Directory for metrics and tables")
+    parser.add_argument(
+        "--no_timestamp",
+        action="store_true",
+        help="Do not append a timestamp subdirectory to the output path. "
+             "Useful when the caller already constructs a unique directory.",
+    )
+    parser.add_argument(
+        "--registry_dir",
+        default=None,
+        help="Directory containing per-task pair registries (e.g. data/generated_texts/csibench). "
+             "If provided, class_texts are loaded from registries instead of raw templates.",
+    )
+    parser.add_argument(
+        "--tasks",
+        nargs="+",
+        default=None,
+        help="Evaluate a multitask checkpoint on each listed task separately. "
+             "Produces per-task metrics under output_dir/<task>/.",
+    )
+    args = parser.parse_args()
+
+    with open(args.config) as f:
+        config: dict[str, Any] = yaml.safe_load(f)
+    config = _merge_configs(config)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    ckpt_path = Path(args.checkpoint)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+    if isinstance(ckpt, dict) and "config" in ckpt:
+        file_ds_cfg = config.get("dataset_config", {})
+        config = _merge_configs(ckpt["config"])
+        merged_ds = dict(file_ds_cfg)
+        merged_ds.update(config.get("dataset_config", {}))
+        config["dataset_config"] = merged_ds
+    if args.override:
+        _apply_overrides(config, args.override)
+
+    model, text_encoder, text_projection, csi_projection = build_model_from_config(config, device)
+    state = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
+    model.load_state_dict(state, strict=True)
+
+    # ------------------------------------------------------------------
+    # Multi-task evaluation: evaluate each task separately, then combine
+    # ------------------------------------------------------------------
+    if args.tasks:
+        multitask_dataset = config.get("dataset", "csibench")
+        base_out = _build_output_dir(
+            args.output_dir, config, "multitask",
+            no_timestamp=args.no_timestamp, is_multitask=True,
+        )
+        config.pop("task_root", None)
+
+        all_results: dict[str, dict[str, Any]] = {}
+        for eval_task in args.tasks:
+            logger.info("=== Evaluating task: %s ===", eval_task)
+            task_out = base_out / eval_task
+
+            eval_dataset = TASK_TO_DATASET.get(eval_task, multitask_dataset)
+            _apply_overrides(config, [f"task={eval_task}", f"dataset={eval_dataset}"])
+
+            try:
+                task_results = _evaluate_single_task(
+                    model=model,
+                    text_encoder=text_encoder,
+                    text_projection=text_projection,
+                    csi_projection=csi_projection,
+                    config=config,
+                    dataset=eval_dataset,
+                    task=eval_task,
+                    out_dir=task_out,
+                    eval_protocols=args.eval_protocols,
+                    registry_dir=args.registry_dir,
+                    device=device,
+                    cross_task_dataset=multitask_dataset,
+                )
+                all_results[eval_task] = _deep_strip_heavy(_numpy_json(task_results))
+            except Exception as e:
+                logger.warning("Task %s failed: %s", eval_task, e)
+                all_results[eval_task] = {"error": str(e)}
+
+            logger.info("  -> %s", task_out)
+
+        # Save config snapshot
+        with open(base_out / "config.yaml", "w", encoding="utf-8") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+        # Combined summary
+        _save_json(all_results, base_out / "summary.json")
+
+        summary_md = generate_multitask_summary_md(
+            all_results, str(ckpt_path), args.config, multitask_dataset,
+        )
+        (base_out / "summary.md").write_text(summary_md, encoding="utf-8")
+
+        _write_multitask_latex_tables(all_results, base_out / "tables.tex")
+
+        logger.info("Multitask results: %s", base_out)
+        logger.info("  Files: summary.json, summary.md, tables.tex, config.yaml, <task>/metrics.json")
+        return
+
+    # ------------------------------------------------------------------
+    # Standard single-task evaluation
+    # ------------------------------------------------------------------
+    dataset = config["dataset"]
+    task = config.get("task", "har")
+    out_dir = _build_output_dir(
+        args.output_dir, config, task,
+        no_timestamp=args.no_timestamp,
+    )
+
+    results = _evaluate_single_task(
+        model=model,
+        text_encoder=text_encoder,
+        text_projection=text_projection,
+        csi_projection=csi_projection,
+        config=config,
+        dataset=dataset,
+        task=task,
+        out_dir=out_dir,
+        eval_protocols=args.eval_protocols,
+        registry_dir=args.registry_dir,
+        device=device,
+    )
+
+    # Save config snapshot
+    with open(out_dir / "config.yaml", "w", encoding="utf-8") as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+    # Generate summary.md
+    clean_results = _deep_strip_heavy(_numpy_json(results))
+    summary_md = generate_summary_md(
+        clean_results, str(ckpt_path), args.config, dataset, task,
+    )
+    (out_dir / "summary.md").write_text(summary_md, encoding="utf-8")
+
+    # LaTeX tables
+    write_latex_tables(clean_results, out_dir / "tables.tex")
+
+    logger.info("Results saved to: %s", out_dir)
+    logger.info("  Files: metrics.json, summary.md, tables.tex, config.yaml")
 
 
 if __name__ == "__main__":

@@ -300,11 +300,6 @@ evaluate_task() {
     local registry_parent
     registry_parent=$(dirname "$reg_dir")
 
-    local eval_protocols="zero_shot visualization"
-    if [[ "$DATASET" == "csibench" ]]; then
-        eval_protocols="zero_shot cross_task visualization"
-    fi
-
     python -m scripts.run_evaluate \
         --checkpoint "$ckpt_path" \
         --config "$CONFIG" \
@@ -312,9 +307,10 @@ evaluate_task() {
             "task_root=${task_root}" \
             "registry_path=${reg_path}" \
             "text_embeddings_path=${reg_dir}/text_embeddings_${TEXT_ENCODER}.h5" \
-        --eval_protocols $eval_protocols \
+        --eval_protocols zero_shot cross_task visualization \
         --registry_dir "$registry_parent" \
-        --output_dir "$results_dir"
+        --output_dir "$results_dir" \
+        --no_timestamp
 
     log "Evaluation results saved to: ${results_dir}"
     if [[ -f "${results_dir}/metrics.json" ]]; then
@@ -339,6 +335,10 @@ if ct:
         if isinstance(res, dict) and 'accuracy' in res:
             print(f'    {pair}: accuracy={res[\"accuracy\"]:.4f}  f1={res.get(\"weighted_f1\", 0):.4f}')
 "
+    fi
+    if [[ -f "${results_dir}/summary.md" ]]; then
+        log "Summary:"
+        cat "${results_dir}/summary.md"
     fi
 }
 
@@ -408,6 +408,7 @@ evaluate_multitask() {
     local mt_dataset
     mt_dataset=$(python3 -c "import yaml; print(yaml.safe_load(open('${mt_config}'))['dataset'])")
     local ckpt_path="${MODEL_ROOT}/checkpoints/multitask/${mt_dataset}/multitask/${METHOD}/best.pt"
+    local base_results_dir="${MODEL_ROOT}/results/multitask_${mt_dataset}/${METHOD}_${ENCODER}"
 
     if [[ ! -f "$ckpt_path" ]]; then
         log "ERROR: Multitask checkpoint not found: ${ckpt_path}"
@@ -422,7 +423,7 @@ evaluate_multitask() {
         local reg_dir
         reg_dir=$(resolve_registry_dir "$t")
         local reg_path="${reg_dir}/pair_registry.json"
-        local results_dir="${MODEL_ROOT}/results/multitask_${mt_dataset}/${t}/${METHOD}_${ENCODER}"
+        local results_dir="${base_results_dir}/${t}"
         local registry_parent
         registry_parent=$(dirname "$reg_dir")
 
@@ -438,9 +439,10 @@ evaluate_multitask() {
                 "task_root=${task_root}" \
                 "registry_path=${reg_path}" \
                 "text_embeddings_path=${reg_dir}/text_embeddings_${TEXT_ENCODER}.h5" \
-            --eval_protocols zero_shot visualization \
+            --eval_protocols zero_shot cross_task visualization \
             --registry_dir "$registry_parent" \
-            --output_dir "$results_dir"
+            --output_dir "$results_dir" \
+            --no_timestamp
 
         log "Results for ${t} saved to: ${results_dir}"
         if [[ -f "${results_dir}/metrics.json" ]]; then
@@ -451,9 +453,72 @@ with open('${results_dir}/metrics.json') as f:
 zs = m.get('zero_shot', {})
 print(f'  [${t}] Zero-shot accuracy:    {zs.get(\"accuracy\", \"N/A\")}')
 print(f'  [${t}] Zero-shot weighted F1: {zs.get(\"weighted_f1\", \"N/A\")}')
+ct = m.get('cross_task', {})
+if ct:
+    for pair, res in ct.items():
+        if isinstance(res, dict) and 'accuracy' in res:
+            print(f'  [${t}] Cross-task {pair}: accuracy={res[\"accuracy\"]:.4f}  f1={res.get(\"weighted_f1\", 0):.4f}')
+lp = m.get('visualization', {}).get('linear_probe', {})
+if lp:
+    print(f'  [${t}] Linear probe accuracy: {lp.get(\"accuracy\", \"N/A\")}')
 "
         fi
     done
+
+    # Generate combined summary across all tasks
+    log "Generating combined multitask summary..."
+    cd "$REPO_ROOT"
+    python3 -c "
+import json, os
+from pathlib import Path
+
+base = Path('${base_results_dir}')
+all_results = {}
+for task_dir in sorted(base.iterdir()):
+    mf = task_dir / 'metrics.json'
+    if task_dir.is_dir() and mf.is_file():
+        with open(mf) as f:
+            all_results[task_dir.name] = json.load(f)
+
+if all_results:
+    with open(base / 'summary.json', 'w') as f:
+        json.dump(all_results, f, indent=2)
+
+    lines = ['# Multitask Evaluation Summary', '',
+             '| Task | Accuracy | Weighted F1 |',
+             '|------|----------|-------------|']
+    for t, res in sorted(all_results.items()):
+        zs = res.get('zero_shot', res)
+        acc = zs.get('accuracy', 'N/A')
+        f1 = zs.get('weighted_f1', 'N/A')
+        if isinstance(acc, float):
+            lines.append(f'| {t} | {acc:.4f} | {f1:.4f} |')
+        else:
+            lines.append(f'| {t} | {acc} | {f1} |')
+    lines.append('')
+
+    has_ct = False
+    for t, res in sorted(all_results.items()):
+        ct = res.get('cross_task', {})
+        valid = {k: v for k, v in ct.items() if isinstance(v, dict) and 'accuracy' in v}
+        if valid:
+            if not has_ct:
+                lines.extend(['## Cross-Task Transfer', ''])
+                has_ct = True
+            lines.extend([f'### Source: {t}', '',
+                          '| Direction | Accuracy | Weighted F1 |',
+                          '|-----------|----------|-------------|'])
+            for pair, r in sorted(valid.items()):
+                lines.append(f'| {pair} | {r[\"accuracy\"]:.4f} | {r.get(\"weighted_f1\", 0):.4f} |')
+            lines.append('')
+
+    with open(base / 'summary.md', 'w') as f:
+        f.write('\n'.join(lines))
+
+    print('Combined summary saved to: ${base_results_dir}/')
+    print()
+    print('\n'.join(lines))
+"
 }
 
 # ------------------------------------------------------------------
