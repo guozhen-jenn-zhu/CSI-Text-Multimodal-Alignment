@@ -620,6 +620,11 @@ def main() -> None:
         }
 
     metrics_path = out_dir / "metrics.json"
+    if metrics_path.is_file():
+        with open(metrics_path) as f:
+            existing = json.load(f)
+        existing.update(results)
+        results = existing
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
     write_latex_tables(results, out_dir / "tables.tex")
