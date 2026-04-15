@@ -640,6 +640,27 @@ def main() -> None:
             results = existing
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("Could not load existing metrics.json, writing fresh: %s", e)
+
+    # Final cleanup: strip large arrays from all protocol results so
+    # metrics.json stays small and readable (even after merging old data).
+    _heavy_keys = {"labels", "csi_embeddings", "text_embeddings", "prototypes"}
+    for section in results.values():
+        if not isinstance(section, dict):
+            continue
+        for hk in _heavy_keys:
+            section.pop(hk, None)
+        if "predictions" in section and isinstance(section["predictions"], (list, np.ndarray)):
+            p = section["predictions"]
+            section["predictions"] = (p[:200].tolist() if hasattr(p, "tolist") else p[:200])
+        for sub in section.values():
+            if not isinstance(sub, dict):
+                continue
+            for hk in _heavy_keys:
+                sub.pop(hk, None)
+            if "predictions" in sub and isinstance(sub["predictions"], (list, np.ndarray)):
+                p = sub["predictions"]
+                sub["predictions"] = (p[:200].tolist() if hasattr(p, "tolist") else p[:200])
+
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
     write_latex_tables(results, out_dir / "tables.tex")
