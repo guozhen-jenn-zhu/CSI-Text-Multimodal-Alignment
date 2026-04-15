@@ -25,10 +25,12 @@ TASK_TO_DATASET: dict[str, str] = {
 
 
 class CrossTaskTransfer:
-    """Evaluate zero-shot transfer across tasks within or across datasets.
+    """Evaluate zero-shot transfer from a source task to any other task.
 
-    A model trained on a *source* task (e.g. HAR) is evaluated on every other
-    task using only the target task's text class prototypes — no fine-tuning.
+    A model trained on a *source* task (e.g. HAR on csibench) is evaluated on
+    every other task -- including tasks from different datasets -- using only
+    the target task's text class prototypes and test data.  No fine-tuning is
+    performed.  Use ``dataset_name="all"`` to evaluate across all datasets.
     """
 
     DATASET_TASKS: dict[str, list[str]] = {

@@ -782,9 +782,9 @@ def _evaluate_single_task(
 
     Args:
         cross_task_dataset: Dataset key for ``CrossTaskTransfer.DATASET_TASKS``
-            lookup.  When ``None``, *dataset* is used.  For multitask_all
-            evaluations this should be ``"all"`` so that cross-task covers
-            tasks from all datasets.
+            lookup.  Defaults to ``"all"`` so that cross-task evaluation
+            covers every task across all datasets regardless of training
+            dataset.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     results: dict[str, Any] = {
@@ -824,7 +824,7 @@ def _evaluate_single_task(
             results["ambient_qa"] = {"error": str(e)}
 
     # --- Cross-task transfer ---
-    ct_dataset = cross_task_dataset or dataset
+    ct_dataset = cross_task_dataset or "all"
     if "cross_task" in eval_protocols and ct_dataset in CrossTaskTransfer.DATASET_TASKS:
         ct_obj = CrossTaskTransfer(text_encoder, text_projection, device=str(device))
         all_tasks = CrossTaskTransfer.DATASET_TASKS[ct_dataset]
@@ -1083,7 +1083,7 @@ def main() -> None:
                     eval_protocols=args.eval_protocols,
                     registry_dir=args.registry_dir,
                     device=device,
-                    cross_task_dataset=multitask_dataset,
+                    cross_task_dataset="all",
                 )
                 all_results[eval_task] = _deep_strip_heavy(_numpy_json(task_results))
             except Exception as e:
