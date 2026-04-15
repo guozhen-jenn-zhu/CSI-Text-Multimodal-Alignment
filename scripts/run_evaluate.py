@@ -159,9 +159,11 @@ def _resolve_task_root(config: dict, task: Optional[str] = None, dataset_name: O
 
     Resolution order:
     1. Return ``config["task_root"]`` if it matches the requested dataset/task.
-    2. Check the dataset config's ``multitask.tasks`` — these live under
-       ``data_root/multitask/<task>``.
-    3. Otherwise resolve as ``data_root/<task>`` (standalone tasks).
+    2. Check the top-level ``multitask.tasks`` list for an explicit per-task
+       ``task_root`` (set by multitask experiment configs).
+    3. Use ``data_root`` from ``dataset_config``, checking the dataset YAML's
+       ``multitask.tasks`` dict and ``tasks`` dict for folder structure.
+    4. Fall back to ``data_root/<task>``.
 
     When ``data_root`` is explicitly set (e.g. SageMaker paths), the folder
     mappings from the dataset YAML (like ``FallDetection``) are skipped and
@@ -172,6 +174,13 @@ def _resolve_task_root(config: dict, task: Optional[str] = None, dataset_name: O
 
     if dn == config["dataset"] and t == config.get("task") and config.get("task_root"):
         return config["task_root"]
+
+    # Check top-level multitask config for explicit per-task task_root
+    mt_cfg_tasks = config.get("multitask", {}).get("tasks", [])
+    if isinstance(mt_cfg_tasks, list):
+        for entry in mt_cfg_tasks:
+            if isinstance(entry, dict) and entry.get("task_name") == t and entry.get("task_root"):
+                return entry["task_root"]
 
     ds_cfg = config.get("dataset_config", {}) if dn == config["dataset"] else _dataset_yaml_defaults(dn)
     default_data_root = f"data/processed/{dn}"
