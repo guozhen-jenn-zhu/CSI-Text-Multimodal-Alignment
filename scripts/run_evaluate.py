@@ -534,16 +534,18 @@ def main() -> None:
                 target_texts[tgt] = build_class_texts("csibench", tgt, registry_path=tgt_reg)
             except Exception as e:
                 logger.warning("Skipping cross-task target %s: %s", tgt, e)
-        results["cross_task"] = _numpy_json(
-            ct.evaluate_all_pairs(
-                "csibench",
-                model,
-                target_loaders,
-                target_texts,
-                source_task=task,
-                csi_projection=csi_projection,
-            )
+        raw_ct = ct.evaluate_all_pairs(
+            "csibench",
+            model,
+            target_loaders,
+            target_texts,
+            source_task=task,
+            csi_projection=csi_projection,
         )
+        results["cross_task"] = {
+            k: _strip_heavy(v) if isinstance(v, dict) else v
+            for k, v in raw_ct.items()
+        }
 
     if "cross_dataset" in args.eval_protocols:
         src = cross_dataset_source_name(config)
