@@ -309,6 +309,7 @@ evaluate_task() {
             "text_embeddings_path=${reg_dir}/text_embeddings_${TEXT_ENCODER}.h5" \
         --eval_protocols zero_shot cross_task visualization \
         --registry_dir "$registry_parent" \
+        --data_root "$DATA_ROOT" \
         --output_dir "$results_dir" \
         --no_timestamp
 
@@ -441,6 +442,7 @@ evaluate_multitask() {
                 "text_embeddings_path=${reg_dir}/text_embeddings_${TEXT_ENCODER}.h5" \
             --eval_protocols zero_shot cross_task visualization \
             --registry_dir "$registry_parent" \
+            --data_root "$DATA_ROOT" \
             --output_dir "$results_dir" \
             --no_timestamp
 

@@ -173,6 +173,9 @@ def _resolve_task_root(config: dict, task: Optional[str] = None, dataset_name: O
        ``task_root`` (set by multitask experiment configs).
     3. Use ``data_root`` from ``dataset_config``, checking the dataset YAML's
        ``multitask.tasks`` dict and ``tasks`` dict for folder structure.
+       When ``config["global_data_root"]`` is set (via ``--data_root``), it
+       overrides the default ``data/processed/<dataset>`` base path with
+       ``<global_data_root>/<dataset>`` for cross-dataset targets.
     4. Fall back to ``data_root/<task>``.
 
     When ``data_root`` is explicitly set (e.g. SageMaker paths), the folder
@@ -194,6 +197,11 @@ def _resolve_task_root(config: dict, task: Optional[str] = None, dataset_name: O
     ds_cfg = config.get("dataset_config", {}) if dn == config["dataset"] else _dataset_yaml_defaults(dn)
     default_data_root = f"data/processed/{dn}"
     data_root = ds_cfg.get("data_root", default_data_root)
+
+    global_data_root = config.get("global_data_root")
+    if global_data_root and data_root == default_data_root:
+        data_root = str(Path(global_data_root) / dn)
+
     has_custom_data_root = data_root != default_data_root
 
     mt_tasks = ds_cfg.get("multitask", {}).get("tasks", {})
@@ -1023,6 +1031,12 @@ def main() -> None:
              "If provided, class_texts are loaded from registries instead of raw templates.",
     )
     parser.add_argument(
+        "--data_root",
+        default=None,
+        help="Base directory containing all dataset folders (e.g. /data/Dataset). "
+             "Used to resolve task_root for cross-task targets from other datasets.",
+    )
+    parser.add_argument(
         "--tasks",
         nargs="+",
         default=None,
@@ -1046,6 +1060,9 @@ def main() -> None:
         config["dataset_config"] = merged_ds
     if args.override:
         _apply_overrides(config, args.override)
+
+    if args.data_root:
+        config["global_data_root"] = args.data_root
 
     model, text_encoder, text_projection, csi_projection = build_model_from_config(config, device)
     state = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
