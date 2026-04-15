@@ -35,13 +35,21 @@ def _set_seed(seed: int) -> None:
 
 
 def _merge_configs(experiment: dict) -> dict:
-    """Load and merge dataset / method YAML files referenced by the experiment config."""
+    """Load and merge dataset / method YAML files referenced by the experiment config.
+
+    For ``dataset_config``, the dataset YAML provides defaults (task mappings,
+    h5_key, etc.) while the experiment-level ``dataset_config`` overrides win
+    (e.g. ``data_root`` set in a SageMaker experiment config).
+    """
     base_dir = Path("configs")
 
     dataset_path = base_dir / "dataset" / f"{experiment['dataset']}.yaml"
     if dataset_path.exists():
         with open(dataset_path) as f:
-            experiment["dataset_config"] = yaml.safe_load(f)
+            ds_defaults = yaml.safe_load(f) or {}
+        existing = experiment.get("dataset_config", {})
+        ds_defaults.update(existing)
+        experiment["dataset_config"] = ds_defaults
 
     method_path = base_dir / "method" / f"{experiment['method']}.yaml"
     if method_path.exists():

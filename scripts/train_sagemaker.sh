@@ -93,30 +93,40 @@ detect_gpus() {
 }
 
 resolve_task_root() {
-    # Returns the task_root directory containing metadata/ and splits/
-    # Checks dataset-specific maps first, then falls back to convention.
+    # Returns the task_root directory containing metadata/ and splits/.
+    # Task names are unique across datasets, so we check all maps.
     local task_name="$1"
-    if [[ "$DATASET" == "csibench" ]]; then
-        if [[ -n "${CSIBENCH_STANDALONE_TASKS[$task_name]+x}" ]]; then
-            echo "${DATA_ROOT}/${CSIBENCH_STANDALONE_TASKS[$task_name]}"
-            return
-        elif [[ -n "${CSIBENCH_MULTITASK_TASKS[$task_name]+x}" ]]; then
-            echo "${DATA_ROOT}/${CSIBENCH_MULTITASK_TASKS[$task_name]}/${task_name}"
-            return
-        fi
-    elif [[ "$DATASET" == "signfi" ]] && [[ -n "${SIGNFI_TASKS[$task_name]+x}" ]]; then
+    if [[ -n "${CSIBENCH_STANDALONE_TASKS[$task_name]+x}" ]]; then
+        echo "${DATA_ROOT}/${CSIBENCH_STANDALONE_TASKS[$task_name]}"
+    elif [[ -n "${CSIBENCH_MULTITASK_TASKS[$task_name]+x}" ]]; then
+        echo "${DATA_ROOT}/${CSIBENCH_MULTITASK_TASKS[$task_name]}/${task_name}"
+    elif [[ -n "${SIGNFI_TASKS[$task_name]+x}" ]]; then
         echo "${DATA_ROOT}/${SIGNFI_TASKS[$task_name]}"
-        return
-    elif [[ "$DATASET" == "xrf55" ]] && [[ -n "${XRF55_TASKS[$task_name]+x}" ]]; then
+    elif [[ -n "${XRF55_TASKS[$task_name]+x}" ]]; then
         echo "${DATA_ROOT}/${XRF55_TASKS[$task_name]}"
-        return
+    else
+        echo "${DATA_ROOT}/${DATASET}/${task_name}"
     fi
-    echo "${DATA_ROOT}/${DATASET}/${task_name}"
 }
 
 resolve_registry_dir() {
     # Registry lives alongside the task metadata
     resolve_task_root "$1"
+}
+
+resolve_dataset_for_task() {
+    # Maps a task name to its parent dataset identifier.
+    local task_name="$1"
+    if [[ -n "${CSIBENCH_STANDALONE_TASKS[$task_name]+x}" ]] \
+    || [[ -n "${CSIBENCH_MULTITASK_TASKS[$task_name]+x}" ]]; then
+        echo "csibench"
+    elif [[ -n "${SIGNFI_TASKS[$task_name]+x}" ]]; then
+        echo "signfi"
+    elif [[ -n "${XRF55_TASKS[$task_name]+x}" ]]; then
+        echo "xrf55"
+    else
+        echo "$DATASET"
+    fi
 }
 
 # ------------------------------------------------------------------
@@ -322,6 +332,12 @@ if far:
 lp = m.get('visualization', {}).get('linear_probe', {})
 if lp:
     print(f'  Linear probe accuracy: {lp.get(\"accuracy\", \"N/A\")}')
+ct = m.get('cross_task', {})
+if ct:
+    print(f'  Cross-task transfer:')
+    for pair, res in ct.items():
+        if isinstance(res, dict) and 'accuracy' in res:
+            print(f'    {pair}: accuracy={res[\"accuracy\"]:.4f}  f1={res.get(\"weighted_f1\", 0):.4f}')
 "
     fi
 }
@@ -384,9 +400,14 @@ train_multitask() {
 # Multitask: per-task evaluation
 # ------------------------------------------------------------------
 evaluate_multitask() {
-    # $1... = task names
+    # $1 = multitask config path, $2... = task names
+    local mt_config="$1"
+    shift
     local mt_tasks=("$@")
-    local ckpt_path="${MODEL_ROOT}/checkpoints/multitask/${DATASET}/multitask/${METHOD}/best.pt"
+
+    local mt_dataset
+    mt_dataset=$(python3 -c "import yaml; print(yaml.safe_load(open('${mt_config}'))['dataset'])")
+    local ckpt_path="${MODEL_ROOT}/checkpoints/multitask/${mt_dataset}/multitask/${METHOD}/best.pt"
 
     if [[ ! -f "$ckpt_path" ]]; then
         log "ERROR: Multitask checkpoint not found: ${ckpt_path}"
@@ -394,28 +415,30 @@ evaluate_multitask() {
     fi
 
     for t in "${mt_tasks[@]}"; do
+        local task_ds
+        task_ds=$(resolve_dataset_for_task "$t")
         local task_root
         task_root=$(resolve_task_root "$t")
         local reg_dir
         reg_dir=$(resolve_registry_dir "$t")
         local reg_path="${reg_dir}/pair_registry.json"
-        local results_dir="${MODEL_ROOT}/results/${DATASET}/multitask/${t}/${METHOD}_${ENCODER}"
+        local results_dir="${MODEL_ROOT}/results/multitask_${mt_dataset}/${t}/${METHOD}_${ENCODER}"
         local registry_parent
         registry_parent=$(dirname "$reg_dir")
 
-        log "Evaluating multitask model on task: ${t}"
+        log "Evaluating multitask model on task: ${t} (dataset=${task_ds})"
 
         cd "$REPO_ROOT"
         python -m scripts.run_evaluate \
             --checkpoint "$ckpt_path" \
-            --config "$CONFIG" \
+            --config "$mt_config" \
             --override \
-                "dataset=${DATASET}" \
+                "dataset=${task_ds}" \
                 "task=${t}" \
                 "task_root=${task_root}" \
                 "registry_path=${reg_path}" \
                 "text_embeddings_path=${reg_dir}/text_embeddings_${TEXT_ENCODER}.h5" \
-            --eval_protocols zero_shot cross_task visualization \
+            --eval_protocols zero_shot visualization \
             --registry_dir "$registry_parent" \
             --output_dir "$results_dir"
 
@@ -426,8 +449,8 @@ import json
 with open('${results_dir}/metrics.json') as f:
     m = json.load(f)
 zs = m.get('zero_shot', {})
-print(f'  [{t}] Zero-shot accuracy:    {zs.get(\"accuracy\", \"N/A\")}')
-print(f'  [{t}] Zero-shot weighted F1: {zs.get(\"weighted_f1\", \"N/A\")}')
+print(f'  [${t}] Zero-shot accuracy:    {zs.get(\"accuracy\", \"N/A\")}')
+print(f'  [${t}] Zero-shot weighted F1: {zs.get(\"weighted_f1\", \"N/A\")}')
 "
         fi
     done
@@ -455,7 +478,7 @@ main() {
             generate_embeddings "$t"
         done
         train_multitask "$mt_config" "${mt_tasks[@]}"
-        evaluate_multitask "${mt_tasks[@]}"
+        evaluate_multitask "$mt_config" "${mt_tasks[@]}"
         log "=== Multitask (CSI-Bench) complete ==="
         return
     fi
@@ -468,7 +491,7 @@ main() {
             generate_embeddings "$t"
         done
         train_multitask "$mt_config" "${mt_tasks[@]}"
-        evaluate_multitask "${mt_tasks[@]}"
+        evaluate_multitask "$mt_config" "${mt_tasks[@]}"
         log "=== Multitask (all datasets) complete ==="
         return
     fi

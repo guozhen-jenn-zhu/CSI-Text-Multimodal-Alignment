@@ -5,7 +5,7 @@ method: clip_infonce
 # -- Data paths (SageMaker Studio JupyterLab) --
 # Overridden per-task by the launch script; these are defaults for HAR.
 dataset_config:
-  data_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench/multitask
+  data_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench
   preprocessing:
     input_channels: 1
     target_subcarriers: 64

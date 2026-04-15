@@ -155,7 +155,18 @@ def _dataset_yaml_defaults(dataset_name: str) -> dict[str, Any]:
 
 
 def _resolve_task_root(config: dict, task: Optional[str] = None, dataset_name: Optional[str] = None) -> str:
-    """Resolve the task_root path, checking config overrides first."""
+    """Resolve the task_root path, checking config overrides first.
+
+    Resolution order:
+    1. Return ``config["task_root"]`` if it matches the requested dataset/task.
+    2. Check the dataset config's ``multitask.tasks`` — these live under
+       ``data_root/multitask/<task>``.
+    3. Otherwise resolve as ``data_root/<task>`` (standalone tasks).
+
+    When ``data_root`` is explicitly set (e.g. SageMaker paths), the folder
+    mappings from the dataset YAML (like ``FallDetection``) are skipped and
+    the task name is used directly as the folder name.
+    """
     dn = dataset_name if dataset_name is not None else config["dataset"]
     t = task if task is not None else config.get("task", "har")
 
@@ -163,16 +174,21 @@ def _resolve_task_root(config: dict, task: Optional[str] = None, dataset_name: O
         return config["task_root"]
 
     ds_cfg = config.get("dataset_config", {}) if dn == config["dataset"] else _dataset_yaml_defaults(dn)
-    data_root = ds_cfg.get("data_root", f"data/processed/{dn}")
+    default_data_root = f"data/processed/{dn}"
+    data_root = ds_cfg.get("data_root", default_data_root)
+    has_custom_data_root = data_root != default_data_root
 
-    tasks = ds_cfg.get("tasks", {})
-    if isinstance(tasks, dict) and t in tasks:
-        folder = tasks[t].get("folder", t)
-    else:
-        folder = t
+    mt_tasks = ds_cfg.get("multitask", {}).get("tasks", {})
+    if isinstance(mt_tasks, dict) and t in mt_tasks:
+        return str(Path(data_root) / "multitask" / t)
 
-    from pathlib import Path
-    return str(Path(data_root) / folder)
+    if not has_custom_data_root:
+        tasks = ds_cfg.get("tasks", {})
+        if isinstance(tasks, dict) and t in tasks:
+            folder = tasks[t].get("folder", t)
+            return str(Path(data_root) / folder)
+
+    return str(Path(data_root) / t)
 
 
 def _loader_config_from_experiment(
