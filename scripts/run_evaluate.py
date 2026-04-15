@@ -397,7 +397,13 @@ def main() -> None:
     ckpt_path = Path(args.checkpoint)
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     if isinstance(ckpt, dict) and "config" in ckpt:
+        file_ds_cfg = config.get("dataset_config", {})
         config = _merge_configs(ckpt["config"])
+        # Preserve environment-specific settings (e.g. data_root) from the
+        # file config as defaults; checkpoint config values win when present.
+        merged_ds = dict(file_ds_cfg)
+        merged_ds.update(config.get("dataset_config", {}))
+        config["dataset_config"] = merged_ds
     if args.override:
         _apply_overrides(config, args.override)
 
@@ -411,6 +417,7 @@ def main() -> None:
     if args.tasks:
         all_results: dict[str, Any] = {}
         base_out = Path(args.output_dir)
+        config.pop("task_root", None)
         for eval_task in args.tasks:
             logger.info("=== Evaluating task: %s ===", eval_task)
             task_out = base_out / eval_task
