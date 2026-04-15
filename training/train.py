@@ -52,18 +52,29 @@ def _merge_configs(experiment: dict) -> dict:
 
 
 def _apply_overrides(config: dict, overrides: list[str]) -> None:
-    """Apply ``key.subkey=value`` overrides to a nested config dict."""
+    """Apply ``key.subkey=value`` overrides to a nested config dict.
+
+    Supports list indices so that ``multitask.tasks.0.registry_path=…``
+    correctly indexes into a YAML list.
+    """
     for kv in overrides:
         key, value = kv.split("=", 1)
         keys = key.split(".")
         d = config
         for k in keys[:-1]:
-            d = d.setdefault(k, {})
+            if isinstance(d, list):
+                d = d[int(k)]
+            else:
+                d = d.setdefault(k, {})
         try:
             parsed = yaml.safe_load(value)
         except yaml.YAMLError:
             parsed = value
-        d[keys[-1]] = parsed
+        last = keys[-1]
+        if isinstance(d, list):
+            d[int(last)] = parsed
+        else:
+            d[last] = parsed
 
 
 def _setup_distributed() -> tuple[int, int, int]:
