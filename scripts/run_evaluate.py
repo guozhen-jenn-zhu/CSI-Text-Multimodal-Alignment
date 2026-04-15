@@ -327,7 +327,8 @@ def _numpy_json(obj: Any) -> Any:
 
 
 def _strip_heavy(m: dict[str, Any]) -> dict[str, Any]:
-    drop = {"csi_embeddings", "text_embeddings", "prototypes", "failure_details"}
+    """Strip large arrays from metrics to keep metrics.json small and readable."""
+    drop = {"csi_embeddings", "text_embeddings", "prototypes", "failure_details", "labels"}
     out = {k: v for k, v in m.items() if k not in drop}
     if "per_attribute" in out:
         out["per_attribute"] = {
@@ -336,7 +337,11 @@ def _strip_heavy(m: dict[str, Any]) -> dict[str, Any]:
         }
     if "predictions" in out:
         preds = out["predictions"]
-        out["predictions"] = preds[:200].tolist() if hasattr(preds, "tolist") else preds
+        if hasattr(preds, "tolist"):
+            preds = preds[:200].tolist()
+        elif isinstance(preds, list):
+            preds = preds[:200]
+        out["predictions"] = preds
     return _numpy_json(out)
 
 
@@ -542,10 +547,14 @@ def main() -> None:
             source_task=task,
             csi_projection=csi_projection,
         )
-        results["cross_task"] = {
-            k: _strip_heavy(v) if isinstance(v, dict) else v
-            for k, v in raw_ct.items()
-        }
+        if raw_ct:
+            results["cross_task"] = {
+                k: _strip_heavy(v) if isinstance(v, dict) else v
+                for k, v in raw_ct.items()
+            }
+            logger.info("Cross-task: %d pairs saved to metrics", len(raw_ct))
+        else:
+            logger.warning("Cross-task evaluation produced no results (all targets skipped)")
 
     if "cross_dataset" in args.eval_protocols:
         src = cross_dataset_source_name(config)
@@ -623,10 +632,14 @@ def main() -> None:
 
     metrics_path = out_dir / "metrics.json"
     if metrics_path.is_file():
-        with open(metrics_path) as f:
-            existing = json.load(f)
-        existing.update(results)
-        results = existing
+        try:
+            with open(metrics_path) as f:
+                existing = json.load(f)
+            for k, v in results.items():
+                existing[k] = v
+            results = existing
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Could not load existing metrics.json, writing fresh: %s", e)
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
     write_latex_tables(results, out_dir / "tables.tex")
