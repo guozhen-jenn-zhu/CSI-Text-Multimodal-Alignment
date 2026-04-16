@@ -361,11 +361,25 @@ class Trainer:
         task_root = self.config.get("task_root") or self._resolve_task_root()
         h5_key = self._resolve_h5_key()
 
+        registry_path = self.config.get("registry_path")
+        text_embeddings_path = self.config.get("text_embeddings_path")
+
+        if not registry_path:
+            candidate = Path(task_root) / "pair_registry.json"
+            if candidate.is_file():
+                registry_path = str(candidate)
+
+        if not text_embeddings_path:
+            enc_name = self.config.get("text_encoder", {}).get("name", "clip_vit_b32")
+            candidate = Path(task_root) / f"text_embeddings_{enc_name}.h5"
+            if candidate.is_file():
+                text_embeddings_path = str(candidate)
+
         loader_config: dict[str, Any] = {
             "task_root": task_root,
             "h5_key": h5_key,
-            "registry_path": self.config.get("registry_path"),
-            "text_embeddings_path": self.config.get("text_embeddings_path"),
+            "registry_path": registry_path,
+            "text_embeddings_path": text_embeddings_path,
             "target_subcarriers": preproc.get("target_subcarriers", 64),
             "target_time_steps": preproc.get("target_time_steps", 500),
             "batch_size": training_cfg.get("batch_size", 128),
