@@ -299,7 +299,8 @@ class Trainer:
     ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {}
         temp = loss_cfg.get("temperature")
-        if temp is not None:
+        methods_with_temperature = {"clip_infonce", "siglip", "language_bind", "centrobind"}
+        if temp is not None and method_name in methods_with_temperature:
             kwargs["temperature"] = temp
 
         if method_name == "siglip":
