@@ -5,6 +5,7 @@ from .csi_encoder import (
     ViT_1D,
     build_csi_encoder,
 )
+from .amfm_encoder import AMFM_CSI_Encoder
 from .text_encoder import (
     CLIPTextEncoder,
     SentenceTransformerEncoder,
@@ -17,6 +18,7 @@ __all__ = [
     "ResNet18_1D",
     "PatchTST_CSI",
     "ViT_1D",
+    "AMFM_CSI_Encoder",
     "build_csi_encoder",
     "CLIPTextEncoder",
     "SentenceTransformerEncoder",

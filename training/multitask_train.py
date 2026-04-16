@@ -157,14 +157,33 @@ class MultitaskTrainer:
         embed_dim = proj_cfg.get("dim", 512)
 
         enc_cfg = self.config.get("csi_encoder", {})
+        enc_kwargs: dict[str, Any] = {
+            "dropout": float(enc_cfg.get("dropout", 0.0)),
+        }
+        if enc_cfg.get("name", "resnet18_1d").lower() == "amfm":
+            for k in ("emb_dim", "encoder_heads", "encoder_layers",
+                       "encoder_ff_dim", "encoder_dropout", "c_out",
+                       "freq_out", "max_len", "in_channels"):
+                if k in enc_cfg:
+                    enc_kwargs[k] = enc_cfg[k]
+            if "pretrained_path" in enc_cfg:
+                enc_kwargs["pretrained_path"] = enc_cfg["pretrained_path"]
+
         self.csi_encoder = build_csi_encoder(
             name=enc_cfg.get("name", "resnet18_1d"),
             input_channels=input_channels,
             input_subcarriers=input_subcarriers,
             input_timesteps=input_timesteps,
             embed_dim=embed_dim,
-            dropout=float(enc_cfg.get("dropout", 0.0)),
+            **enc_kwargs,
         )
+
+        self._encoder_frozen = enc_cfg.get("freeze", False)
+        if self._encoder_frozen:
+            for param in self.csi_encoder.parameters():
+                param.requires_grad = False
+            if self.is_main:
+                logger.info("CSI encoder is FROZEN (no gradient updates)")
 
         txt_cfg = self.config.get("text_encoder", {})
         has_precomputed = all(
@@ -252,10 +271,36 @@ class MultitaskTrainer:
 
     def _build_optimizer(self) -> None:
         training_cfg = self.config["training"]
+        base_lr = float(training_cfg.get("learning_rate", 1e-3))
+        weight_decay = float(training_cfg.get("weight_decay", 1e-5))
+
+        enc_cfg = self.config.get("csi_encoder", {})
+        encoder_lr_scale = float(enc_cfg.get("encoder_lr_scale", 1.0))
+
+        model = self.model.module if self.distributed else self.model
+
+        if not self._encoder_frozen and encoder_lr_scale != 1.0:
+            encoder_ids = {id(p) for p in model.csi_encoder.parameters()}
+            encoder_params = [p for p in model.parameters()
+                              if p.requires_grad and id(p) in encoder_ids]
+            other_params = [p for p in model.parameters()
+                            if p.requires_grad and id(p) not in encoder_ids]
+            param_groups = [
+                {"params": encoder_params, "lr": base_lr * encoder_lr_scale},
+                {"params": other_params, "lr": base_lr},
+            ]
+            if self.is_main:
+                logger.info(
+                    "Using encoder_lr_scale=%.3f  (encoder LR=%.2e, other LR=%.2e)",
+                    encoder_lr_scale, base_lr * encoder_lr_scale, base_lr,
+                )
+        else:
+            param_groups = [p for p in self.model.parameters() if p.requires_grad]
+
         self.optimizer = torch.optim.AdamW(
-            self.model.parameters(),
-            lr=float(training_cfg.get("learning_rate", 1e-3)),
-            weight_decay=float(training_cfg.get("weight_decay", 1e-5)),
+            param_groups,
+            lr=base_lr,
+            weight_decay=weight_decay,
         )
         self.scheduler = build_scheduler(self.optimizer, training_cfg)
 
@@ -265,6 +310,8 @@ class MultitaskTrainer:
 
     def train_epoch(self, epoch: int) -> dict[str, float]:
         self.model.train()
+        if self._encoder_frozen:
+            (self.model.module if self.distributed else self.model).csi_encoder.eval()
         total_loss = 0.0
         num_batches = 0
         per_task_loss: dict[str, float] = defaultdict(float)

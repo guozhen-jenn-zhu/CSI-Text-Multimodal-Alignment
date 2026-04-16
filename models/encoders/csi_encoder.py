@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import math
 from typing import Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -269,20 +272,42 @@ def build_csi_encoder(name: str, input_channels: int, input_subcarriers: int,
     """Instantiate a CSI encoder by name.
 
     Args:
-        name: One of ``'resnet18_1d'``, ``'patchtst'``, ``'vit_1d'``.
+        name: One of ``'resnet18_1d'``, ``'patchtst'``, ``'vit_1d'``,
+              ``'amfm'``.
         input_channels: Number of antenna / Rx-Tx channels (C).
         input_subcarriers: Number of OFDM subcarriers (K).
         input_timesteps: Number of time steps (T).
         embed_dim: Output embedding dimension.
         **kwargs: Extra arguments forwarded to the encoder constructor.
+            For ``amfm``, the key ``pretrained_path`` triggers loading of
+            pre-trained weights from a local file or S3 URI.
 
     Returns:
         An ``nn.Module`` mapping ``[B, C, K, T] -> [B, embed_dim]``.
     """
     key = name.lower()
+
+    # AM-FM uses a separate module and supports pre-trained weight loading
+    if key == "amfm":
+        from .amfm_encoder import AMFM_CSI_Encoder, load_pretrained_weights
+
+        pretrained_path = kwargs.pop("pretrained_path", None)
+        encoder = AMFM_CSI_Encoder(
+            input_channels=input_channels,
+            input_subcarriers=input_subcarriers,
+            input_timesteps=input_timesteps,
+            embed_dim=embed_dim,
+            **kwargs,
+        )
+        if pretrained_path:
+            load_pretrained_weights(encoder, pretrained_path)
+        else:
+            logger.info("AM-FM encoder created without pre-trained weights")
+        return encoder
+
     if key not in _CSI_ENCODERS:
         raise ValueError(f"Unknown CSI encoder '{name}'. "
-                         f"Available: {list(_CSI_ENCODERS.keys())}")
+                         f"Available: {list(_CSI_ENCODERS.keys()) + ['amfm']}")
     return _CSI_ENCODERS[key](
         input_channels=input_channels,
         input_subcarriers=input_subcarriers,

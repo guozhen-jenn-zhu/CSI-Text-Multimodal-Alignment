@@ -71,13 +71,23 @@ def build_model_from_config(config: dict, device: torch.device) -> tuple[torch.n
     input_timesteps = preproc.get("target_time_steps", 500)
 
     enc_cfg = config.get("csi_encoder", {})
+    enc_kwargs: dict = {"dropout": float(enc_cfg.get("dropout", 0.0))}
+    if enc_cfg.get("name", "resnet18_1d").lower() == "amfm":
+        for k in ("emb_dim", "encoder_heads", "encoder_layers",
+                   "encoder_ff_dim", "encoder_dropout", "c_out",
+                   "freq_out", "max_len", "in_channels"):
+            if k in enc_cfg:
+                enc_kwargs[k] = enc_cfg[k]
+        # Don't load pretrained weights during eval -- the full model
+        # state_dict from the alignment checkpoint already has them.
+
     csi_encoder = build_csi_encoder(
         name=enc_cfg.get("name", "resnet18_1d"),
         input_channels=input_channels,
         input_subcarriers=input_subcarriers,
         input_timesteps=input_timesteps,
         embed_dim=embed_dim,
-        dropout=float(enc_cfg.get("dropout", 0.0)),
+        **enc_kwargs,
     )
 
     txt_cfg = config.get("text_encoder", {})
