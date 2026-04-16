@@ -13,6 +13,7 @@ import os
 import random
 import time
 from collections import defaultdict
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,8 @@ class MultitaskTrainer:
         self.best_val_loss = float("inf")
 
         self.s3_syncer = None
+        self._s3_executor: ThreadPoolExecutor | None = None
+        self._s3_futures: list[Future] = []
         s3_cfg = config.get("s3", {})
         if s3_cfg.get("enabled", False) and self.is_main:
             try:
@@ -108,6 +111,7 @@ class MultitaskTrainer:
                     bucket=s3_cfg["bucket"],
                     prefix=s3_cfg.get("prefix", "Multimodal_CSI_Text"),
                 )
+                self._s3_executor = ThreadPoolExecutor(max_workers=1)
             except Exception as e:
                 logger.warning("S3 sync unavailable: %s", e)
 
@@ -399,13 +403,26 @@ class MultitaskTrainer:
                 per_task_loss[tname] += batch_loss
                 per_task_count[tname] += 1
 
-        avg_loss = total_loss / max(num_batches, 1)
+        if self.distributed:
+            stats = torch.tensor([total_loss, num_batches], device=self.device)
+            dist.all_reduce(stats, op=dist.ReduceOp.SUM)
+            avg_loss = (stats[0] / stats[1].clamp(min=1)).item()
+        else:
+            avg_loss = total_loss / max(num_batches, 1)
+
         metrics = {"val_loss": avg_loss}
         for tname, tloss in per_task_loss.items():
             metrics[f"val_loss/{tname}"] = tloss / max(per_task_count[tname], 1)
         return metrics
 
     def train(self) -> dict[str, float]:
+        """Full multitask training loop with early stopping.
+
+        val_loss is all-reduced inside ``validate()`` so every rank sees
+        the same value.  Early-stopping decisions therefore happen on a
+        single, consistent code path across all ranks, preventing the
+        deadlocks that occur when ranks diverge at ``dist.barrier()``.
+        """
         patience_counter = 0
         best_metrics: dict[str, float] = {}
 
@@ -428,6 +445,8 @@ class MultitaskTrainer:
 
             elapsed = time.perf_counter() - t0
 
+            improved = val_metrics["val_loss"] < self.best_val_loss
+
             if self.is_main:
                 lr = self.optimizer.param_groups[0]["lr"]
                 per_task_str = "  ".join(
@@ -447,42 +466,45 @@ class MultitaskTrainer:
                     import wandb
                     wandb.log(all_metrics, step=epoch)
 
-                if val_metrics["val_loss"] < self.best_val_loss:
-                    self.best_val_loss = val_metrics["val_loss"]
-                    patience_counter = 0
+                if improved:
                     best_metrics = all_metrics.copy()
-                    self.save_checkpoint(f"best_ep{epoch+1}_vl{val_metrics['val_loss']:.4f}.pt", epoch, val_metrics["val_loss"])
-                    logger.info("  -> new best val_loss=%.4f -- checkpoint saved", self.best_val_loss)
-                else:
-                    patience_counter += 1
-                    if patience_counter >= self.patience:
-                        logger.info(
-                            "Early stopping at epoch %d (patience %d exhausted)",
-                            epoch + 1, self.patience,
-                        )
-                        break
+                    self.save_checkpoint(
+                        f"best_ep{epoch+1}_vl{val_metrics['val_loss']:.4f}.pt",
+                        epoch, val_metrics["val_loss"],
+                    )
+                    logger.info("  -> new best val_loss=%.4f -- checkpoint saved", val_metrics["val_loss"])
 
                 if (epoch + 1) % 30 == 0:
                     self.save_checkpoint(f"epoch_{epoch + 1}.pt", epoch, val_metrics["val_loss"])
+
+            if improved:
+                self.best_val_loss = val_metrics["val_loss"]
+                patience_counter = 0
             else:
-                if val_metrics["val_loss"] < self.best_val_loss:
-                    self.best_val_loss = val_metrics["val_loss"]
-                    patience_counter = 0
-                else:
-                    patience_counter += 1
-                    if patience_counter >= self.patience:
-                        break
+                patience_counter += 1
 
             if self.distributed:
                 dist.barrier()
 
+            if patience_counter >= self.patience:
+                if self.is_main:
+                    logger.info(
+                        "Early stopping at epoch %d (patience %d exhausted)",
+                        epoch + 1, self.patience,
+                    )
+                break
+
         if self.is_main:
+            self._flush_s3_uploads()
             self.load_checkpoint("best.pt")
             logger.info("Training complete. Best val_loss=%.4f", self.best_val_loss)
 
             if self.use_wandb and self.wandb_run is not None:
                 import wandb
                 wandb.finish()
+
+            if self._s3_executor is not None:
+                self._s3_executor.shutdown(wait=False)
 
         return best_metrics
 
@@ -521,11 +543,23 @@ class MultitaskTrainer:
                 best_link.unlink()
             best_link.symlink_to(filename)
 
-            if self.s3_syncer is not None:
-                try:
-                    self.s3_syncer.upload_checkpoint(str(path), key_name="best.pt")
-                except Exception as e:
-                    logger.warning("S3 checkpoint upload failed: %s", e)
+            if self.s3_syncer is not None and self._s3_executor is not None:
+                upload_path = str(path)
+                def _bg_upload(p=upload_path):
+                    try:
+                        self.s3_syncer.upload_checkpoint(p, key_name="best.pt")
+                    except Exception as exc:
+                        logger.warning("S3 checkpoint upload failed: %s", exc)
+                self._s3_futures.append(self._s3_executor.submit(_bg_upload))
+
+    def _flush_s3_uploads(self) -> None:
+        """Wait for all pending background S3 uploads to finish."""
+        for fut in self._s3_futures:
+            try:
+                fut.result(timeout=120)
+            except Exception as e:
+                logger.warning("Background S3 upload error: %s", e)
+        self._s3_futures.clear()
 
     def load_checkpoint(self, filename: str) -> None:
         path = self.checkpoint_dir / filename
