@@ -28,6 +28,9 @@
 #
 #   # Override the best encoder (skip Priority 0)
 #   BEST_ENCODER=patchtst PRIORITY=1 bash scripts/run_neurips_experiments.sh
+#
+#   # Force re-run of all experiments (disable skip logic)
+#   SKIP_EXISTING=0 bash scripts/run_neurips_experiments.sh
 
 set -euo pipefail
 
@@ -39,8 +42,12 @@ DATA_ROOT="${DATA_ROOT:-/home/sagemaker-user/Multimodal_CSI_Text/Dataset}"
 MODEL_ROOT="${MODEL_ROOT:-/home/sagemaker-user/Multimodal_CSI_Text/Model}"
 DRY_RUN="${DRY_RUN:-0}"
 PRIORITY="${PRIORITY:-all}"
+SKIP_EXISTING="${SKIP_EXISTING:-1}"
 
 BEST_ENCODER="${BEST_ENCODER:-}"
+
+S3_RESULTS_PREFIX="s3://rnd-sagemaker/Multimodal_CSI_Text/Model/results"
+S3_CHECKPOINTS_PREFIX="s3://rnd-sagemaker/Multimodal_CSI_Text/Model/checkpoints"
 ENCODER_PRELIMINARY_FILE="${MODEL_ROOT}/results/_encoder_preliminary_best.txt"
 
 ALL_METHODS=(clip_infonce siglip language_bind centrobind barlow_twins masked_predict)
@@ -85,9 +92,41 @@ should_run() {
     return 1
 }
 
+checkpoint_exists() {
+    [[ "$SKIP_EXISTING" == "1" ]] || return 1
+    local dataset="$1" task="$2" method="$3"
+    local local_path="${MODEL_ROOT}/checkpoints/${dataset}-${task}-${method}/best.pt"
+    if [[ -f "$local_path" ]]; then
+        return 0
+    fi
+    local s3_key="${S3_CHECKPOINTS_PREFIX}/${dataset}-${task}-${method}/best.pt"
+    if aws s3 ls "$s3_key" &>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+result_exists() {
+    [[ "$SKIP_EXISTING" == "1" ]] || return 1
+    local dataset="$1" task="$2" method="$3" encoder="$4"
+    local local_path="${MODEL_ROOT}/results/${dataset}/${task}/${method}_${encoder}/metrics.json"
+    if [[ -f "$local_path" ]]; then
+        return 0
+    fi
+    local s3_key="${S3_RESULTS_PREFIX}/${dataset}/${task}/${method}_${encoder}/metrics.json"
+    if aws s3 ls "$s3_key" &>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
 train_single() {
     local dataset="$1" task="$2" method="$3" encoder="$4"
     local extra_overrides=("${@:5}")
+    if checkpoint_exists "$dataset" "$task" "$method"; then
+        log "SKIP (checkpoint exists): ${dataset}-${task}-${method}"
+        return 0
+    fi
     log "Training: dataset=${dataset} task=${task} method=${method} encoder=${encoder}"
     run_cmd env \
         DATASET="$dataset" \
@@ -103,6 +142,11 @@ evaluate_single() {
 
     local ckpt="${MODEL_ROOT}/checkpoints/${dataset}-${task}-${method}/best.pt"
     local results_dir="${MODEL_ROOT}/results/${dataset}/${task}/${method}_${encoder}"
+
+    if result_exists "$dataset" "$task" "$method" "$encoder"; then
+        log "SKIP (results exist): ${results_dir}"
+        return 0
+    fi
 
     if [[ ! -f "$ckpt" ]] && [[ "$DRY_RUN" != "1" ]]; then
         log_warn "Checkpoint not found: ${ckpt} — skipping evaluation"
@@ -234,19 +278,27 @@ priority_1b() {
 
     local best_method="clip_infonce"
 
-    log "Training multitask CSI-Bench..."
-    run_cmd env \
-        TASK=multitask_csibench \
-        METHOD="$best_method" \
-        ENCODER="$encoder" \
-        bash "${REPO_ROOT}/scripts/train_sagemaker.sh"
+    if checkpoint_exists csibench multitask "$best_method"; then
+        log "SKIP (checkpoint exists): csibench-multitask-${best_method}"
+    else
+        log "Training multitask CSI-Bench..."
+        run_cmd env \
+            TASK=multitask_csibench \
+            METHOD="$best_method" \
+            ENCODER="$encoder" \
+            bash "${REPO_ROOT}/scripts/train_sagemaker.sh"
+    fi
 
-    log "Training multitask ALL (CSI-Bench + XRF55 + SignFi)..."
-    run_cmd env \
-        TASK=multitask_all \
-        METHOD="$best_method" \
-        ENCODER="$encoder" \
-        bash "${REPO_ROOT}/scripts/train_sagemaker.sh"
+    if checkpoint_exists all multitask "$best_method"; then
+        log "SKIP (checkpoint exists): all-multitask-${best_method}"
+    else
+        log "Training multitask ALL (CSI-Bench + XRF55 + SignFi)..."
+        run_cmd env \
+            TASK=multitask_all \
+            METHOD="$best_method" \
+            ENCODER="$encoder" \
+            bash "${REPO_ROOT}/scripts/train_sagemaker.sh"
+    fi
 }
 
 # ------------------------------------------------------------------
@@ -296,9 +348,20 @@ priority_2b() {
     done
 
     local mt_ckpt="${MODEL_ROOT}/checkpoints/csibench-multitask-clip_infonce/best.pt"
-    if [[ -f "$mt_ckpt" ]] || [[ "$DRY_RUN" == "1" ]]; then
+    local mt_results="${MODEL_ROOT}/results/multitask_csibench/clip_infonce_${encoder}"
+    local mt_marker="${mt_results}/summary.json"
+    local mt_s3_marker="${S3_RESULTS_PREFIX}/multitask_csibench/clip_infonce_${encoder}/summary.json"
+    local mt_skip=false
+    if [[ "$SKIP_EXISTING" == "1" ]]; then
+        if [[ -f "$mt_marker" ]] || aws s3 ls "$mt_s3_marker" &>/dev/null; then
+            mt_skip=true
+        fi
+    fi
+
+    if [[ "$mt_skip" == "true" ]]; then
+        log "SKIP (results exist): ${mt_results}"
+    elif [[ -f "$mt_ckpt" ]] || [[ "$DRY_RUN" == "1" ]]; then
         log "Cross-task eval on multitask model..."
-        local mt_results="${MODEL_ROOT}/results/multitask_csibench/clip_infonce_${encoder}"
         run_cmd python -m scripts.run_evaluate \
             --checkpoint "$mt_ckpt" \
             --config "$CONFIG_MT_CSIBENCH" \
@@ -505,6 +568,7 @@ main() {
     log "MODEL_ROOT: ${MODEL_ROOT}"
     log "PRIORITY:   ${PRIORITY}"
     log "DRY_RUN:    ${DRY_RUN}"
+    log "SKIP_EXISTING: ${SKIP_EXISTING}"
     if [[ -n "$BEST_ENCODER" ]]; then
         log "BEST_ENCODER (override): ${BEST_ENCODER}"
     fi
