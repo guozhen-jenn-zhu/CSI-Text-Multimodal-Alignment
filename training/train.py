@@ -320,7 +320,12 @@ class Trainer:
         return kwargs
 
     def _resolve_task_root(self) -> str:
-        """Resolve the task_root path from dataset + task config."""
+        """Resolve the task_root path from dataset + task config.
+
+        Checks standalone tasks first, then multitask tasks.  Multitask
+        tasks (e.g. har, proximity, user_id in CSI-Bench) live under
+        ``data_root/multitask/<task_name>``.
+        """
         ds_cfg = self.config.get("dataset_config", {})
         data_root = ds_cfg.get("data_root", "/data/fm_downstream")
         task_name = self.config.get("task", "har")
@@ -328,10 +333,14 @@ class Trainer:
         tasks = ds_cfg.get("tasks", {})
         if isinstance(tasks, dict) and task_name in tasks:
             folder = tasks[task_name].get("folder", task_name)
-        else:
-            folder = task_name
+            return str(Path(data_root) / folder)
 
-        return str(Path(data_root) / folder)
+        mt_cfg = ds_cfg.get("multitask", {})
+        mt_tasks = mt_cfg.get("tasks", {})
+        if isinstance(mt_tasks, dict) and task_name in mt_tasks:
+            return str(Path(data_root) / "multitask" / task_name)
+
+        return str(Path(data_root) / task_name)
 
     def _resolve_h5_key(self) -> str:
         """Resolve the H5 key for the current dataset/task."""

@@ -59,6 +59,23 @@ def _load_metrics(path: Path) -> dict[str, Any] | None:
         return json.load(f)
 
 
+KNOWN_ENCODERS = ["resnet18_1d", "patchtst", "vit_1d", "amfm"]
+
+
+def _split_method_encoder(name: str) -> tuple[str, str] | None:
+    """Split a directory name like 'clip_infonce_resnet18_1d' into (method, encoder).
+
+    Both method and encoder names can contain underscores, so a simple
+    split on ``_`` is ambiguous.  We match against known encoder suffixes
+    instead.
+    """
+    for enc in KNOWN_ENCODERS:
+        suffix = f"_{enc}"
+        if name.endswith(suffix):
+            return name[: -len(suffix)], enc
+    return None
+
+
 def _find_results(
     root: Path,
     dataset: str | None = None,
@@ -74,11 +91,11 @@ def _find_results(
             continue
         d, t = parts[0], parts[1]
         method_enc = parts[2]
-        if "_" not in method_enc:
+
+        parsed = _split_method_encoder(method_enc)
+        if parsed is None:
             continue
-        last_underscore = method_enc.rfind("_")
-        m = method_enc[:last_underscore]
-        e = method_enc[last_underscore + 1:]
+        m, e = parsed
 
         if dataset and d != dataset:
             continue
@@ -103,6 +120,7 @@ def generate_main_benchmark_table(root: Path, output_dir: Path) -> None:
         return
 
     tasks_ordered = ["har", "fall_detection", "motion_source",
+                     "proximity", "user_id",
                      "action_recognition", "sign_recognition"]
     methods_ordered = list(METHOD_DISPLAY.keys())
 
