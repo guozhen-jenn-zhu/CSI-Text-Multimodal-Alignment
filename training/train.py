@@ -243,9 +243,16 @@ class Trainer:
         txt_cfg = self.config.get("text_encoder", {})
         has_precomputed = self.config.get("text_embeddings_path") is not None
         if has_precomputed:
-            text_embed_dim = proj_cfg.get("dim", 512)
+            import h5py
+            emb_path = self.config["text_embeddings_path"]
+            with h5py.File(emb_path, "r") as f:
+                first_key = next(iter(f.keys()))
+                text_embed_dim = int(f[first_key].shape[0])
             if self.is_main:
-                logger.info("Using precomputed text embeddings — skipping text encoder load")
+                logger.info(
+                    "Using precomputed text embeddings (dim=%d) from %s",
+                    text_embed_dim, emb_path,
+                )
         else:
             self.text_encoder = build_text_encoder(name=txt_cfg.get("name", "clip_vit_b32"))
             text_embed_dim = self.text_encoder.embed_dim
