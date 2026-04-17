@@ -298,6 +298,58 @@ def _register_ambient_answers(
             aq.register_answers(attr, answers)
 
 
+def _normalize_csi_batch(
+    csi: np.ndarray,
+    target_subcarriers: int = 64,
+    target_time_steps: int = 500,
+) -> np.ndarray:
+    """Interpolate and z-normalise a batch of CSI arrays.
+
+    Parameters
+    ----------
+    csi : np.ndarray, shape ``[N, C, K, T]``
+    target_subcarriers, target_time_steps : int
+        Desired spatial / temporal dimensions.
+
+    Returns
+    -------
+    np.ndarray, shape ``[N, C, target_subcarriers, target_time_steps]``
+    """
+    from scipy.interpolate import interp1d
+
+    N, C, K, T = csi.shape
+    if K != target_subcarriers:
+        x_old = np.linspace(0, 1, K)
+        x_new = np.linspace(0, 1, target_subcarriers)
+        out = np.empty((N, C, target_subcarriers, T), dtype=csi.dtype)
+        for n in range(N):
+            for c in range(C):
+                f = interp1d(x_old, csi[n, c], axis=0, kind="linear")
+                out[n, c] = f(x_new)
+        csi = out
+        K = target_subcarriers
+
+    if T != target_time_steps:
+        x_old = np.linspace(0, 1, T)
+        x_new = np.linspace(0, 1, target_time_steps)
+        out = np.empty((N, C, K, target_time_steps), dtype=csi.dtype)
+        for n in range(N):
+            for c in range(C):
+                f = interp1d(x_old, csi[n, c], axis=1, kind="linear")
+                out[n, c] = f(x_new)
+        csi = out
+
+    for n in range(csi.shape[0]):
+        mean = csi[n].mean()
+        std = csi[n].std()
+        if std > 1e-8:
+            csi[n] = (csi[n] - mean) / std
+        else:
+            csi[n] = csi[n] - mean
+
+    return csi.astype(np.float32)
+
+
 def _run_ambient_qa_multitask(
     model: torch.nn.Module,
     text_encoder: torch.nn.Module,
@@ -307,35 +359,60 @@ def _run_ambient_qa_multitask(
     device: torch.device,
     registry_dir: Optional[str] = None,
 ) -> dict[str, Any]:
-    cfg = _loader_config_from_experiment(config, task="multi_task", multi_task=True)
-    loaders = build_dataloaders(cfg)
-    test_loader = loaders["test"]
-    aq = AmbientQA(text_encoder, text_projection, device=str(device))
-    _register_ambient_answers(aq, config, registry_dir=registry_dir)
-    all_task_labels: dict[str, list[np.ndarray]] = {}
+    from data.metadata_loader import MetadataLoader
+
+    attr_map = {"har": "activity", "proximity": "proximity", "user_id": "user_identity"}
+    mt_entries = [
+        e for e in config.get("multitask", {}).get("tasks", [])
+        if isinstance(e, dict) and e.get("task_name") in attr_map
+    ]
+    if not mt_entries:
+        return {"error": "no_multitask_tasks_in_config",
+                "message": "Config has no multitask.tasks entries matching har/proximity/user_id."}
+
+    task_loaders: dict[str, MetadataLoader] = {}
+    for entry in mt_entries:
+        task_loaders[entry["task_name"]] = MetadataLoader(
+            entry["task_root"], h5_key=entry.get("h5_key", "CSI_amps"),
+        )
+
+    test_id_sets = {
+        t: set(ld.filter_valid_ids(ld.get_split_ids("test")))
+        for t, ld in task_loaders.items()
+    }
+    shared_ids = sorted(set.intersection(*test_id_sets.values()))
+    if not shared_ids:
+        return {"error": "no_shared_test_samples",
+                "message": "No shared test sample IDs across multitask tasks."}
+
+    ref_loader = next(iter(task_loaders.values()))
+    csi_np, _, _ = ref_loader.load_samples_batch(shared_ids, show_progress=False)
+
+    preproc = config.get("dataset_config", {}).get("preprocessing", {})
+    csi_np = _normalize_csi_batch(
+        csi_np,
+        target_subcarriers=preproc.get("target_subcarriers", 64),
+        target_time_steps=preproc.get("target_time_steps", 500),
+    )
+    csi_tensor = torch.from_numpy(csi_np).to(device)
+
     model.eval()
-    csi_encoder = model.csi_encoder
     emb_chunks: list[torch.Tensor] = []
     with torch.no_grad():
-        for batch in test_loader:
-            csi = batch["csi"].to(device)
-            feat = csi_encoder(csi)
+        for chunk in csi_tensor.split(256):
+            feat = model.csi_encoder(chunk)
             if csi_projection is not None:
                 feat = csi_projection(feat)
             emb_chunks.append(feat.cpu())
-            tl = batch.get("task_labels")
-            if tl is None:
-                continue
-            for k, v in tl.items():
-                all_task_labels.setdefault(k, []).append(v.numpy())
-    if not emb_chunks:
-        return {"error": "no_batches", "message": "Ambient QA requires multi-task CSI-Bench test data."}
     csi_emb = torch.cat(emb_chunks, dim=0)
+
     tasks_and_labels: dict[str, np.ndarray] = {}
-    key_map = {"har": "activity", "user_id": "user_identity", "proximity": "proximity"}
-    for raw_k, arr_list in all_task_labels.items():
-        attr = key_map.get(raw_k, raw_k)
-        tasks_and_labels[attr] = np.concatenate(arr_list, axis=0)
+    for task_name, loader in task_loaders.items():
+        attr = attr_map[task_name]
+        tasks_and_labels[attr] = np.array([loader.get_label(sid) for sid in shared_ids])
+
+    aq = AmbientQA(text_encoder, text_projection, device=str(device))
+    _register_ambient_answers(aq, config, registry_dir=registry_dir)
     return aq.evaluate_multi_attribute(csi_emb, tasks_and_labels, list(tasks_and_labels.keys()))
 
 
