@@ -190,14 +190,33 @@ class MultitaskTrainer:
                 logger.info("CSI encoder is FROZEN (no gradient updates)")
 
         txt_cfg = self.config.get("text_encoder", {})
+        enc_name = txt_cfg.get("name", "clip_vit_b32")
+        for tc in self.config["multitask"]["tasks"]:
+            task_root = Path(tc["task_root"])
+            if not tc.get("registry_path"):
+                candidate = task_root / "pair_registry.json"
+                if candidate.is_file():
+                    tc["registry_path"] = str(candidate)
+            if not tc.get("text_embeddings_path"):
+                candidate = task_root / f"text_embeddings_{enc_name}.h5"
+                if candidate.is_file():
+                    tc["text_embeddings_path"] = str(candidate)
+
         has_precomputed = all(
             tc.get("text_embeddings_path") is not None
             for tc in self.config["multitask"]["tasks"]
         )
         if has_precomputed:
-            text_embed_dim = proj_cfg.get("dim", 512)
+            import h5py
+            first_emb_path = self.config["multitask"]["tasks"][0]["text_embeddings_path"]
+            with h5py.File(first_emb_path, "r") as f:
+                first_key = next(iter(f.keys()))
+                text_embed_dim = int(f[first_key].shape[0])
             if self.is_main:
-                logger.info("Using precomputed text embeddings for all tasks")
+                logger.info(
+                    "Using precomputed text embeddings for all tasks (dim=%d)",
+                    text_embed_dim,
+                )
         else:
             self.text_encoder = build_text_encoder(name=txt_cfg.get("name", "clip_vit_b32"))
             text_embed_dim = self.text_encoder.embed_dim
