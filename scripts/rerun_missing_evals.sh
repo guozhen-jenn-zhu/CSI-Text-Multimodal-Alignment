@@ -111,6 +111,7 @@ stage_2b() {
     python -m scripts.run_evaluate \
         --checkpoint "$ckpt" \
         --config "$MT_CONFIG" \
+        --tasks har proximity user_id \
         --eval_protocols ambient_qa \
         --registry_dir "${DATA_ROOT}/csibench" \
         --data_root "$DATA_ROOT" \
