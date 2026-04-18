@@ -60,7 +60,7 @@ resolve_task_root() {
 # 2A. SigLIP-HAR re-evaluation
 # ------------------------------------------------------------------
 stage_2a() {
-    log "=== 2A: SigLIP-HAR re-evaluation (zero_shot + cross_task + visualization) ==="
+    log "=== 2A: SigLIP-HAR re-evaluation (zero_shot + cross_task + visualization + cross_dataset) ==="
 
     local task_root
     task_root=$(resolve_task_root "har")
@@ -84,7 +84,7 @@ stage_2a() {
             "task_root=${task_root}" \
             "registry_path=${reg_dir}/pair_registry.json" \
             "text_embeddings_path=${reg_dir}/text_embeddings_${TEXT_ENCODER}.h5" \
-        --eval_protocols zero_shot cross_task visualization \
+        --eval_protocols zero_shot cross_task visualization cross_dataset \
         --registry_dir "${DATA_ROOT}/csibench" \
         --data_root "$DATA_ROOT" \
         --output_dir "$results_dir" \

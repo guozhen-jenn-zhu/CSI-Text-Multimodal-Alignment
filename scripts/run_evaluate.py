@@ -493,11 +493,26 @@ def _deep_strip_heavy(obj: Any) -> Any:
     return obj
 
 
-def _save_json(data: Any, path: Path) -> None:
-    """Save JSON with numpy conversion, creating parent dirs as needed."""
+def _save_json(data: Any, path: Path, *, merge: bool = False) -> None:
+    """Save JSON with numpy conversion, creating parent dirs as needed.
+
+    If *merge* is True and *path* already exists, top-level keys from *data*
+    are merged into the existing file (new keys overwrite old ones).  This
+    prevents partial reruns from erasing results of earlier protocols.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    converted = _numpy_json(data)
+    if merge and path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+            if isinstance(existing, dict) and isinstance(converted, dict):
+                existing.update(converted)
+                converted = existing
+        except (json.JSONDecodeError, OSError):
+            pass
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(_numpy_json(data), f, indent=2)
+        json.dump(converted, f, indent=2)
 
 
 # ------------------------------------------------------------------
@@ -1087,9 +1102,9 @@ def _evaluate_single_task(
             ),
         }
 
-    # Save combined metrics.json
+    # Save combined metrics.json (merge with existing to preserve prior protocols)
     clean_results = _deep_strip_heavy(_numpy_json(results))
-    _save_json(clean_results, out_dir / "metrics.json")
+    _save_json(clean_results, out_dir / "metrics.json", merge=True)
     logger.info("Saved %s", out_dir / "metrics.json")
 
     return results
@@ -1212,8 +1227,8 @@ def main() -> None:
         with open(base_out / "config.yaml", "w", encoding="utf-8") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
-        # Combined summary
-        _save_json(all_results, base_out / "summary.json")
+        # Combined summary (merge to preserve prior protocol results)
+        _save_json(all_results, base_out / "summary.json", merge=True)
 
         summary_md = generate_multitask_summary_md(
             all_results, str(ckpt_path), args.config, multitask_dataset,
