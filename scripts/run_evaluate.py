@@ -407,7 +407,17 @@ def _run_ambient_qa_multitask(
     tasks_and_labels: dict[str, np.ndarray] = {}
     for task_name, loader in task_loaders.items():
         attr = attr_map[task_name]
-        tasks_and_labels[attr] = np.array([loader.get_label(sid) for sid in shared_ids])
+        raw_labels = [loader.get_label(sid) for sid in shared_ids]
+        lmap_path = Path(loader.task_root) / "metadata" / "label_mapping.json"
+        if lmap_path.is_file():
+            with open(lmap_path) as _lf:
+                label_to_idx = json.load(_lf)["label_to_idx"]
+            int_labels = [label_to_idx[str(lbl)] for lbl in raw_labels]
+        else:
+            unique = sorted(set(raw_labels))
+            lbl2int = {lbl: i for i, lbl in enumerate(unique)}
+            int_labels = [lbl2int[lbl] for lbl in raw_labels]
+        tasks_and_labels[attr] = np.array(int_labels, dtype=np.int64)
 
     aq = AmbientQA(text_encoder, text_projection, device=str(device))
     _register_ambient_answers(aq, config, registry_dir=registry_dir)
