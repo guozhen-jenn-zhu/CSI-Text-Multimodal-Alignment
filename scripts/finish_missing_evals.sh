@@ -109,13 +109,15 @@ sync_results() {
 stage_1() {
     log "=== Stage 1: Restore original CLIP-based HAR clip_infonce_resnet18_1d ==="
 
-    local original_ckpt="${MODEL_ROOT}/checkpoints/csibench-har-clip_infonce/epoch_150.pt"
+    # Use a unique filename to avoid collision with locally-overwritten checkpoints.
+    local original_ckpt="${MODEL_ROOT}/checkpoints/csibench-har-clip_infonce/epoch_150_p0_clip.pt"
     local task_root
     task_root=$(resolve_task_root "har")
     local results_dir="${MODEL_ROOT}/results/csibench/har/clip_infonce_${ENCODER}"
 
-    if [[ ! -f "$original_ckpt" ]] && [[ "$DRY_RUN" != "1" ]]; then
-        log "Downloading original CLIP resnet18_1d checkpoint (epoch_150) from S3..."
+    # Always force-download from S3 to guarantee we get the original P0 weights.
+    if [[ "$DRY_RUN" != "1" ]]; then
+        log "Force-downloading original CLIP resnet18_1d checkpoint (epoch_150) from S3..."
         aws s3 cp \
             "${S3_CHECKPOINTS}/csibench-har-clip_infonce/epoch_150.pt" \
             "$original_ckpt"
