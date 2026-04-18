@@ -887,8 +887,10 @@ def _evaluate_single_task(
     }
 
     # #region agent log
-    import json as _json_dbg, time as _time_dbg
-    with open("/Users/guozhenzhu/Documents/GitHub/CSI-Text-Multimodal-Alignment/.cursor/debug-eac91e.log", "a") as _f_dbg:
+    import json as _json_dbg, time as _time_dbg, os as _os_dbg
+    _dbg_log = _os_dbg.path.join(_os_dbg.path.dirname(_os_dbg.path.dirname(_os_dbg.path.abspath(__file__))), ".cursor", "debug-eac91e.log")
+    _os_dbg.makedirs(_os_dbg.path.dirname(_dbg_log), exist_ok=True)
+    with open(_dbg_log, "a") as _f_dbg:
         _f_dbg.write(_json_dbg.dumps({"sessionId":"eac91e","hypothesisId":"A","location":"run_evaluate.py:890","message":"_evaluate_single_task entry","data":{"dataset":dataset,"task":task,"eval_protocols":eval_protocols},"timestamp":int(_time_dbg.time()*1000)})+"\n")
     # #endregion
 
@@ -920,7 +922,7 @@ def _evaluate_single_task(
     if "ambient_qa" in eval_protocols and dataset == "csibench":
         try:
             # #region agent log
-            with open("/Users/guozhenzhu/Documents/GitHub/CSI-Text-Multimodal-Alignment/.cursor/debug-eac91e.log", "a") as _f_dbg:
+            with open(_dbg_log, "a") as _f_dbg:
                 _f_dbg.write(_json_dbg.dumps({"sessionId":"eac91e","hypothesisId":"B","location":"run_evaluate.py:922","message":"ambient_qa starting","data":{"task":task,"has_mt_config":bool(config.get("multitask",{}).get("tasks"))},"timestamp":int(_time_dbg.time()*1000)})+"\n")
             # #endregion
             aq_res = _run_ambient_qa_multitask(
@@ -928,7 +930,7 @@ def _evaluate_single_task(
                 registry_dir=registry_dir,
             )
             # #region agent log
-            with open("/Users/guozhenzhu/Documents/GitHub/CSI-Text-Multimodal-Alignment/.cursor/debug-eac91e.log", "a") as _f_dbg:
+            with open(_dbg_log, "a") as _f_dbg:
                 _aq_keys = list(aq_res.keys()) if isinstance(aq_res, dict) else str(type(aq_res))
                 _f_dbg.write(_json_dbg.dumps({"sessionId":"eac91e","hypothesisId":"B","location":"run_evaluate.py:930","message":"ambient_qa result","data":{"keys":_aq_keys,"has_error":"error" in aq_res if isinstance(aq_res,dict) else False,"joint_accuracy":aq_res.get("joint_accuracy") if isinstance(aq_res,dict) else None},"timestamp":int(_time_dbg.time()*1000)})+"\n")
             # #endregion
@@ -936,7 +938,7 @@ def _evaluate_single_task(
         except Exception as e:
             # #region agent log
             import traceback as _tb_dbg
-            with open("/Users/guozhenzhu/Documents/GitHub/CSI-Text-Multimodal-Alignment/.cursor/debug-eac91e.log", "a") as _f_dbg:
+            with open(_dbg_log, "a") as _f_dbg:
                 _f_dbg.write(_json_dbg.dumps({"sessionId":"eac91e","hypothesisId":"C","location":"run_evaluate.py:935","message":"ambient_qa exception","data":{"error":str(e),"traceback":_tb_dbg.format_exc()},"timestamp":int(_time_dbg.time()*1000)})+"\n")
             # #endregion
             logger.warning("Ambient QA skipped: %s", e)
