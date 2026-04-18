@@ -298,54 +298,50 @@ def _register_ambient_answers(
             aq.register_answers(attr, answers)
 
 
-def _normalize_csi_batch(
+def _normalize_csi_single(
     csi: np.ndarray,
     target_subcarriers: int = 64,
     target_time_steps: int = 500,
 ) -> np.ndarray:
-    """Interpolate and z-normalise a batch of CSI arrays.
+    """Interpolate and z-normalise a single CSI sample.
 
     Parameters
     ----------
-    csi : np.ndarray, shape ``[N, C, K, T]``
-    target_subcarriers, target_time_steps : int
-        Desired spatial / temporal dimensions.
+    csi : np.ndarray, shape ``[C, K, T]``
 
     Returns
     -------
-    np.ndarray, shape ``[N, C, target_subcarriers, target_time_steps]``
+    np.ndarray, shape ``[C, target_subcarriers, target_time_steps]``
     """
     from scipy.interpolate import interp1d
 
-    N, C, K, T = csi.shape
+    C, K, T = csi.shape
+
     if K != target_subcarriers:
         x_old = np.linspace(0, 1, K)
         x_new = np.linspace(0, 1, target_subcarriers)
-        out = np.empty((N, C, target_subcarriers, T), dtype=csi.dtype)
-        for n in range(N):
-            for c in range(C):
-                f = interp1d(x_old, csi[n, c], axis=0, kind="linear")
-                out[n, c] = f(x_new)
+        out = np.empty((C, target_subcarriers, T), dtype=csi.dtype)
+        for c in range(C):
+            f = interp1d(x_old, csi[c], axis=0, kind="linear")
+            out[c] = f(x_new)
         csi = out
         K = target_subcarriers
 
     if T != target_time_steps:
         x_old = np.linspace(0, 1, T)
         x_new = np.linspace(0, 1, target_time_steps)
-        out = np.empty((N, C, K, target_time_steps), dtype=csi.dtype)
-        for n in range(N):
-            for c in range(C):
-                f = interp1d(x_old, csi[n, c], axis=1, kind="linear")
-                out[n, c] = f(x_new)
+        out = np.empty((C, K, target_time_steps), dtype=csi.dtype)
+        for c in range(C):
+            f = interp1d(x_old, csi[c], axis=1, kind="linear")
+            out[c] = f(x_new)
         csi = out
 
-    for n in range(csi.shape[0]):
-        mean = csi[n].mean()
-        std = csi[n].std()
-        if std > 1e-8:
-            csi[n] = (csi[n] - mean) / std
-        else:
-            csi[n] = csi[n] - mean
+    mean = csi.mean()
+    std = csi.std()
+    if std > 1e-8:
+        csi = (csi - mean) / std
+    else:
+        csi = csi - mean
 
     return csi.astype(np.float32)
 
@@ -386,14 +382,16 @@ def _run_ambient_qa_multitask(
                 "message": "No shared test sample IDs across multitask tasks."}
 
     ref_loader = next(iter(task_loaders.values()))
-    csi_np, _, _ = ref_loader.load_samples_batch(shared_ids, show_progress=False)
-
     preproc = config.get("dataset_config", {}).get("preprocessing", {})
-    csi_np = _normalize_csi_batch(
-        csi_np,
-        target_subcarriers=preproc.get("target_subcarriers", 64),
-        target_time_steps=preproc.get("target_time_steps", 500),
-    )
+    tgt_sc = preproc.get("target_subcarriers", 64)
+    tgt_ts = preproc.get("target_time_steps", 500)
+
+    normed_samples: list[np.ndarray] = []
+    for sid in shared_ids:
+        raw = ref_loader.load_sample(sid)  # [C, K, T]
+        normed = _normalize_csi_single(raw, tgt_sc, tgt_ts)
+        normed_samples.append(normed)
+    csi_np = np.stack(normed_samples, axis=0)  # [N, C, tgt_sc, tgt_ts]
     csi_tensor = torch.from_numpy(csi_np).to(device)
 
     model.eval()
