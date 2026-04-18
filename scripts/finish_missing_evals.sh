@@ -6,7 +6,9 @@
 #
 #   Stage 1 (CRITICAL): Restore the original CLIP-based HAR clip_infonce result
 #     that was overwritten by Priority 5B (sentence-transformer ablation).
-#     Uses the original checkpoint best_ep78_vl3.6398.pt still in S3.
+#     Uses epoch_150.pt (resnet18_1d + clip_vit_b32, val_loss=3.5347) since
+#     best_ep78_vl3.6398.pt turned out to be a vit_1d checkpoint (P0 trained
+#     all 3 encoders sequentially into the same checkpoint dir).
 #
 #   Stage 2: Evaluate Priority 5B sentence-transformer result into its own
 #     separate output directory (so it doesn't overwrite the main benchmark).
@@ -32,10 +34,7 @@
 #
 # Prerequisites:
 #   - All checkpoints must be synced to ${MODEL_ROOT}/checkpoints/
-#   - For Stage 1, the original CLIP checkpoint must be downloaded:
-#       aws s3 cp s3://rnd-sagemaker/Multimodal_CSI_Text/Model/checkpoints/\
-#         csibench-har-clip_infonce/best_ep78_vl3.6398.pt \
-#         ${MODEL_ROOT}/checkpoints/csibench-har-clip_infonce/best_clip_original.pt
+#   - Stage 1 auto-downloads the required checkpoint from S3
 
 set -euo pipefail
 
@@ -102,24 +101,29 @@ sync_results() {
 # ==================================================================
 # Stage 1: Restore original CLIP-based HAR clip_infonce result
 # ==================================================================
+# The original best resnet18_1d checkpoint (best_ep78_vl3.6398.pt)
+# turned out to be vit_1d, not resnet18_1d -- P0 trained all 3 encoders
+# sequentially into the same checkpoint directory, overwriting each
+# other.  However, epoch_150.pt (val_loss=3.5347) survives as a
+# resnet18_1d + clip_vit_b32 checkpoint from the original training.
 stage_1() {
     log "=== Stage 1: Restore original CLIP-based HAR clip_infonce_resnet18_1d ==="
 
-    local original_ckpt="${MODEL_ROOT}/checkpoints/csibench-har-clip_infonce/best_clip_original.pt"
+    local original_ckpt="${MODEL_ROOT}/checkpoints/csibench-har-clip_infonce/epoch_150.pt"
     local task_root
     task_root=$(resolve_task_root "har")
     local results_dir="${MODEL_ROOT}/results/csibench/har/clip_infonce_${ENCODER}"
 
-    # Download the original CLIP checkpoint if not already present
     if [[ ! -f "$original_ckpt" ]] && [[ "$DRY_RUN" != "1" ]]; then
-        log "Downloading original CLIP checkpoint from S3..."
+        log "Downloading original CLIP resnet18_1d checkpoint (epoch_150) from S3..."
         aws s3 cp \
-            "${S3_CHECKPOINTS}/csibench-har-clip_infonce/best_ep78_vl3.6398.pt" \
+            "${S3_CHECKPOINTS}/csibench-har-clip_infonce/epoch_150.pt" \
             "$original_ckpt"
     fi
 
-    require_checkpoint "$original_ckpt" "Stage 1 (original CLIP HAR)" || return 1
+    require_checkpoint "$original_ckpt" "Stage 1 (original CLIP HAR resnet18_1d)" || return 1
 
+    log "Using epoch_150.pt (resnet18_1d + clip_vit_b32, val_loss=3.5347)"
     log "Running full evaluation (zero_shot, cross_task, visualization, cross_dataset)..."
     cd "$REPO_ROOT"
     run_cmd python -m scripts.run_evaluate \
