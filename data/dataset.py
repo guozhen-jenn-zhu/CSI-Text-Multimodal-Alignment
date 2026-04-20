@@ -156,7 +156,8 @@ class CSITextDataset(Dataset):
             with open(lm_path) as f:
                 lm = json.load(f)
             label_to_idx = {str(k): int(v) for k, v in lm["label_to_idx"].items()}
-            raw_set = set(self.labels.tolist())
+            raw_str_labels = [str(lbl) for lbl in self.labels.tolist()]
+            raw_set = set(raw_str_labels)
             missing = raw_set - label_to_idx.keys()
             if missing:
                 raise ValueError(
@@ -165,7 +166,7 @@ class CSITextDataset(Dataset):
                 )
             self._label_to_int = {lbl: label_to_idx[lbl] for lbl in raw_set}
             self.int_labels = np.array(
-                [self._label_to_int[lbl] for lbl in self.labels.tolist()],
+                [self._label_to_int[s] for s in raw_str_labels],
                 dtype=np.int64,
             )
             self.num_classes = int(lm.get("num_classes", len(label_to_idx)))
