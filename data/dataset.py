@@ -6,6 +6,7 @@ in-memory preloading for maximum GPU throughput.
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any, Optional
@@ -143,14 +144,43 @@ class CSITextDataset(Dataset):
         )
 
     def _build_label_map(self) -> None:
-        """Map raw labels to contiguous integer indices."""
-        unique_labels = sorted(set(self.labels.tolist()))
-        self._label_to_int = {lbl: i for i, lbl in enumerate(unique_labels)}
-        self.int_labels = np.array(
-            [self._label_to_int[lbl] for lbl in self.labels.tolist()],
-            dtype=np.int64,
-        )
-        self.num_classes = len(unique_labels)
+        """Map raw labels to integer indices.
+
+        Uses ``{task_root}/metadata/label_mapping.json`` when available so that
+        class indices stay consistent with the pair-registry / text-prototype
+        numbering even when a split omits some classes (e.g. user_id test split
+        missing the held-out user U02).  Falls back to sorted-unique assignment.
+        """
+        lm_path = self.task_root / "metadata" / "label_mapping.json"
+        if lm_path.is_file():
+            with open(lm_path) as f:
+                lm = json.load(f)
+            label_to_idx = {str(k): int(v) for k, v in lm["label_to_idx"].items()}
+            raw_set = set(self.labels.tolist())
+            missing = raw_set - label_to_idx.keys()
+            if missing:
+                raise ValueError(
+                    f"Labels {missing} found in data but absent from "
+                    f"{lm_path}; update label_mapping.json."
+                )
+            self._label_to_int = {lbl: label_to_idx[lbl] for lbl in raw_set}
+            self.int_labels = np.array(
+                [self._label_to_int[lbl] for lbl in self.labels.tolist()],
+                dtype=np.int64,
+            )
+            self.num_classes = int(lm.get("num_classes", len(label_to_idx)))
+            logger.debug(
+                "Label map from %s: %d classes, %d present in split",
+                lm_path, self.num_classes, len(raw_set),
+            )
+        else:
+            unique_labels = sorted(set(self.labels.tolist()))
+            self._label_to_int = {lbl: i for i, lbl in enumerate(unique_labels)}
+            self.int_labels = np.array(
+                [self._label_to_int[lbl] for lbl in self.labels.tolist()],
+                dtype=np.int64,
+            )
+            self.num_classes = len(unique_labels)
 
     def _preload_all(self) -> None:
         """Load all samples into memory as a contiguous array."""

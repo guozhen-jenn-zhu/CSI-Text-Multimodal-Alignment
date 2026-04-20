@@ -1033,15 +1033,6 @@ def _evaluate_single_task(
                         "dataloader": ld,
                         "class_texts": build_class_texts("csibench", "har", registry_path=har_reg),
                     }
-                elif tgt == "xrf55_gesture_subset":
-                    cfg_t = _loader_config_from_experiment(
-                        config, task="sign_recognition", dataset_name="signfi",
-                    )
-                    ld = build_dataloaders(cfg_t)["test"]
-                    target_configs[tgt] = {
-                        "dataloader": ld,
-                        "class_texts": build_class_texts("signfi", "sign_recognition"),
-                    }
             except Exception as e:
                 logger.warning("Cross-dataset target %s: %s", tgt, e)
                 cd_errors[tgt] = str(e)

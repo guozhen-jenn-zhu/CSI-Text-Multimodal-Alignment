@@ -163,7 +163,7 @@ class CrossDatasetTransfer:
     TRANSFER_DIRECTIONS: list[tuple[str, str]] = [
         ("csibench_har", "xrf55"),
         ("xrf55", "csibench_har"),
-        ("signfi", "xrf55_gesture_subset"),
+        ("signfi", "xrf55"),
     ]
 
     def __init__(
