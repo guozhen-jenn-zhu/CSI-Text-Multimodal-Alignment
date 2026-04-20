@@ -34,7 +34,7 @@ from sklearn.metrics import (
     confusion_matrix,
     f1_score,
 )
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
@@ -126,7 +126,7 @@ def train_one_epoch(
         labels = batch["labels"].to(device, non_blocking=True)
 
         optimizer.zero_grad(set_to_none=True)
-        with autocast(device_type="cuda", dtype=torch.bfloat16):
+        with autocast("cuda", dtype=torch.bfloat16):
             logits = model(csi)
             loss = criterion(logits, labels)
 
@@ -164,7 +164,7 @@ def evaluate(
         csi = batch["csi"].to(device, non_blocking=True)
         labels = batch["labels"].to(device, non_blocking=True)
 
-        with autocast(device_type="cuda", dtype=torch.bfloat16):
+        with autocast("cuda", dtype=torch.bfloat16):
             logits = model(csi)
             loss = criterion(logits, labels)
 
@@ -255,7 +255,7 @@ def main():
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
     )
     scheduler = CosineAnnealingLR(optimizer, T_max=args.max_epochs, eta_min=1e-6)
-    scaler = GradScaler()
+    scaler = GradScaler("cuda")
 
     best_val_loss = float("inf")
     best_epoch = -1
