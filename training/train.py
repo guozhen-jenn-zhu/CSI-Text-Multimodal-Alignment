@@ -657,9 +657,10 @@ class Trainer:
 
             if self.s3_syncer is not None and self._s3_executor is not None:
                 upload_path = str(path)
-                def _bg_upload(p=upload_path):
+                s3_key = f"checkpoints/{self.checkpoint_dir.name}/best.pt"
+                def _bg_upload(p=upload_path, k=s3_key):
                     try:
-                        self.s3_syncer.upload_checkpoint(p, key_name="best.pt")
+                        self.s3_syncer.upload_checkpoint(p, key_name=k)
                     except Exception as exc:
                         logger.warning("S3 checkpoint upload failed: %s", exc)
                 self._s3_futures.append(self._s3_executor.submit(_bg_upload))

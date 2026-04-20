@@ -402,7 +402,7 @@ priority_3() {
                         dataset=csibench task=har method=clip_infonce \
                         csi_encoder.name=${encoder} \
                         text_generation.text_level=${level} \
-                        logging.checkpoint_dir=${MODEL_ROOT}/checkpoints/ablation_text_level
+                        logging.checkpoint_dir=${MODEL_ROOT}/checkpoints/ablation_text_level/${level}
             "
     done
 
@@ -420,7 +420,7 @@ priority_3() {
                             dataset=csibench task=har method=${method} \
                             csi_encoder.name=${encoder} \
                             text_generation.num_paraphrases=${n_paraphrases} \
-                            logging.checkpoint_dir=${MODEL_ROOT}/checkpoints/ablation_m2m
+                            logging.checkpoint_dir=${MODEL_ROOT}/checkpoints/ablation_m2m/${method}_${n_paraphrases}para
                 "
         done
     done
