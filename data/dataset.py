@@ -156,12 +156,8 @@ class CSITextDataset(Dataset):
             with open(lm_path) as f:
                 lm = json.load(f)
             label_to_idx = {str(k): int(v) for k, v in lm["label_to_idx"].items()}
-            raw_str_labels = [str(lbl) for lbl in self.labels.tolist()]
-            raw_set = set(raw_str_labels)
+            raw_set = set(self.labels.tolist())
             missing = raw_set - label_to_idx.keys()
-            # #region agent log
-            import time as _t; _log_data = {"sessionId":"3be70b","runId":"run1","hypothesisId":"H1+H2","location":"data/dataset.py:_build_label_map","message":"label_map_debug","data":{"lm_path":str(lm_path),"raw_set_sample":list(sorted(raw_set))[:5],"raw_set_types":type(list(raw_set)[0]).__name__ if raw_set else "empty","lm_keys_sample":list(sorted(label_to_idx.keys()))[:5],"lm_keys_type":type(list(label_to_idx.keys())[0]).__name__ if label_to_idx else "empty","num_raw":len(raw_set),"num_lm_keys":len(label_to_idx),"num_missing":len(missing),"missing_sample":list(sorted(missing))[:5]},"timestamp":int(_t.time()*1000)}; open("/tmp/debug-3be70b.log","a").write(__import__("json").dumps(_log_data)+"\n")
-            # #endregion
             if missing:
                 raise ValueError(
                     f"Labels {missing} found in data but absent from "
@@ -169,7 +165,7 @@ class CSITextDataset(Dataset):
                 )
             self._label_to_int = {lbl: label_to_idx[lbl] for lbl in raw_set}
             self.int_labels = np.array(
-                [self._label_to_int[str(lbl)] for lbl in self.labels.tolist()],
+                [self._label_to_int[lbl] for lbl in self.labels.tolist()],
                 dtype=np.int64,
             )
             self.num_classes = int(lm.get("num_classes", len(label_to_idx)))

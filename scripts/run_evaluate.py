@@ -909,12 +909,9 @@ def _evaluate_single_task(
         "config": {"dataset": dataset, "task": task, "method": config.get("method")},
     }
 
-    needs_class_texts = any(p in eval_protocols for p in ("zero_shot", "visualization", "cross_task"))
+    needs_class_texts = any(p in eval_protocols for p in ("zero_shot", "visualization", "cross_task", "cross_dataset"))
     class_texts: dict = {}
     loaders: dict = {}
-    # #region agent log
-    import time as _t; _log_data = {"sessionId":"3be70b","runId":"run1","hypothesisId":"H3","location":"scripts/run_evaluate.py:_evaluate_single_task","message":"source_loader_check","data":{"eval_protocols":list(eval_protocols),"needs_class_texts":needs_class_texts,"dataset":dataset,"task":task},"timestamp":int(_t.time()*1000)}; open("/tmp/debug-3be70b.log","a").write(__import__("json").dumps(_log_data)+"\n")
-    # #endregion
     if needs_class_texts:
         reg_path = _resolve_registry_path(task, registry_dir, config, dataset_name=dataset)
         class_texts = build_class_texts(dataset, task, registry_path=reg_path)
