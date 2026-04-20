@@ -159,7 +159,7 @@ class CSITextDataset(Dataset):
             raw_set = set(self.labels.tolist())
             missing = raw_set - label_to_idx.keys()
             # #region agent log
-            import time as _t; _log_data = {"sessionId":"3be70b","runId":"run1","hypothesisId":"H1+H2","location":"data/dataset.py:_build_label_map","message":"label_map_debug","data":{"lm_path":str(lm_path),"raw_set_sample":list(sorted(raw_set))[:5],"raw_set_types":type(list(raw_set)[0]).__name__ if raw_set else "empty","lm_keys_sample":list(sorted(label_to_idx.keys()))[:5],"lm_keys_type":type(list(label_to_idx.keys())[0]).__name__ if label_to_idx else "empty","num_raw":len(raw_set),"num_lm_keys":len(label_to_idx),"num_missing":len(missing),"missing_sample":list(sorted(missing))[:5]},"timestamp":int(_t.time()*1000)}; open("/Users/guozhenzhu/Documents/GitHub/CSI-Text-Multimodal-Alignment/.cursor/debug-3be70b.log","a").write(__import__("json").dumps(_log_data)+"\n")
+            import time as _t; _log_data = {"sessionId":"3be70b","runId":"run1","hypothesisId":"H1+H2","location":"data/dataset.py:_build_label_map","message":"label_map_debug","data":{"lm_path":str(lm_path),"raw_set_sample":list(sorted(raw_set))[:5],"raw_set_types":type(list(raw_set)[0]).__name__ if raw_set else "empty","lm_keys_sample":list(sorted(label_to_idx.keys()))[:5],"lm_keys_type":type(list(label_to_idx.keys())[0]).__name__ if label_to_idx else "empty","num_raw":len(raw_set),"num_lm_keys":len(label_to_idx),"num_missing":len(missing),"missing_sample":list(sorted(missing))[:5]},"timestamp":int(_t.time()*1000)}; open("/tmp/debug-3be70b.log","a").write(__import__("json").dumps(_log_data)+"\n")
             # #endregion
             if missing:
                 raise ValueError(
