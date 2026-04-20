@@ -135,16 +135,21 @@ stage_2() {
 # ------------------------------------------------------------------
 stage_3() {
     log "=== Stage 3: Multitask All proximity re-evaluation (resnet18_1d) ==="
-    local ckpt="${MODEL_ROOT}/checkpoints/all-multitask-clip_infonce/best.pt"
+
+    # The resnet18_1d checkpoint was overwritten by the later AMFM training
+    # (priority 6B) which used the same directory name.  The original
+    # resnet18_1d weights are preserved as best_ep195_vl3.3987.pt in S3.
+    local RESNET_MT_ALL_CKPT="${RESNET_MT_ALL_CKPT:-${MODEL_ROOT}/checkpoints/all-multitask-clip_infonce/best_ep195_vl3.3987.pt}"
     local results_dir="${MODEL_ROOT}/results/multitask_all/clip_infonce_${ENCODER}/proximity"
 
-    if [[ ! -f "$ckpt" ]]; then
-        log "ERROR: Checkpoint not found: ${ckpt}"
+    if [[ ! -f "$RESNET_MT_ALL_CKPT" ]]; then
+        log "ERROR: resnet18_1d multitask-all checkpoint not found: ${RESNET_MT_ALL_CKPT}"
+        log "  Download from S3: aws s3 cp s3://rnd-sagemaker/Multimodal_CSI_Text/Model/checkpoints/all-multitask-clip_infonce/best_ep195_vl3.3987.pt ${RESNET_MT_ALL_CKPT}"
         return 1
     fi
 
     python -m scripts.run_evaluate \
-        --checkpoint "$ckpt" \
+        --checkpoint "$RESNET_MT_ALL_CKPT" \
         --config "$MT_ALL_CONFIG" \
         --override \
             "dataset=csibench" \
@@ -168,11 +173,9 @@ stage_3() {
 stage_4() {
     log "=== Stage 4: Multitask All proximity re-evaluation (AMFM encoder) ==="
 
-    # NOTE: The resnet18_1d and AMFM multitask-all checkpoints share the same
-    # directory name (all-multitask-clip_infonce).  If both were trained on the
-    # same instance, the last one overwrites best.pt.  Verify this checkpoint
-    # corresponds to the AMFM model before running.  If they are stored
-    # separately, update AMFM_CKPT below.
+    # The current best.pt in all-multitask-clip_infonce/ IS the AMFM 6B
+    # fine-tuned model (ep156, 65MB, trained Apr 17).  It overwrote the
+    # resnet18_1d best.pt during priority_6 training.
     local AMFM_CKPT="${AMFM_CKPT:-${MODEL_ROOT}/checkpoints/all-multitask-clip_infonce/best.pt}"
     local results_dir="${MODEL_ROOT}/results/multitask_all/clip_infonce_amfm/proximity"
 
