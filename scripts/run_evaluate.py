@@ -909,7 +909,7 @@ def _evaluate_single_task(
         "config": {"dataset": dataset, "task": task, "method": config.get("method")},
     }
 
-    needs_class_texts = any(p in eval_protocols for p in ("zero_shot", "visualization", "cross_task", "cross_dataset"))
+    needs_class_texts = any(p in eval_protocols for p in ("zero_shot", "visualization", "cross_task"))
     class_texts: dict = {}
     loaders: dict = {}
     # #region agent log
