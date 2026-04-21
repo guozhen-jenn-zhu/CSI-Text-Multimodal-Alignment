@@ -12,6 +12,7 @@
 #   DATASET=xrf55 bash scripts/train_supervised_baselines.sh
 #   DATASET=signfi bash scripts/train_supervised_baselines.sh
 #   DATASET=csibench bash scripts/train_supervised_baselines.sh
+#   DATASET=csibench_standalone bash scripts/train_supervised_baselines.sh  # fall_detection + motion_source only
 
 set -euo pipefail
 
@@ -128,6 +129,22 @@ train_csibench_user_id() {
         "CSI-Bench User ID"
 }
 
+train_csibench_fall_detection() {
+    run_supervised \
+        "${DATA_ROOT}/csibench/fall_detection" \
+        2 CSI_amps \
+        "${RESULTS_DIR}/csibench_fall_detection" \
+        "CSI-Bench Fall Detection"
+}
+
+train_csibench_motion_source() {
+    run_supervised \
+        "${DATA_ROOT}/csibench/motion_source" \
+        4 CSI_amps \
+        "${RESULTS_DIR}/csibench_motion_source" \
+        "CSI-Bench Motion Source"
+}
+
 # ------------------------------------------------------------------
 # Main
 # ------------------------------------------------------------------
@@ -156,6 +173,12 @@ main() {
             train_csibench_har
             train_csibench_proximity
             train_csibench_user_id
+            train_csibench_fall_detection
+            train_csibench_motion_source
+            ;;
+        csibench_standalone)
+            train_csibench_fall_detection
+            train_csibench_motion_source
             ;;
         all)
             train_xrf55
@@ -163,9 +186,11 @@ main() {
             train_csibench_har
             train_csibench_proximity
             train_csibench_user_id
+            train_csibench_fall_detection
+            train_csibench_motion_source
             ;;
         *)
-            log "ERROR: Unknown DATASET '${DATASET}'. Use 'all', 'xrf55', 'signfi', or 'csibench'."
+            log "ERROR: Unknown DATASET '${DATASET}'. Use 'all', 'xrf55', 'signfi', 'csibench', or 'csibench_standalone'."
             exit 1
             ;;
     esac
