@@ -44,11 +44,13 @@ TASK_DISPLAY = {
 }
 
 SUPERVISED_BASELINES = {
-    "har": 0.8806,
-    "fall_detection": 0.9493,
-    "motion_source": 0.9956,
-    "proximity": 0.8641,
-    "user_id": 0.9955,
+    "har": 0.9794,
+    "fall_detection": 0.9552,
+    "motion_source": 0.9977,
+    "proximity": 0.9765,
+    "user_id": 1.0000,
+    "action_recognition": 0.8291,
+    "sign_recognition": 0.9943,
 }
 
 

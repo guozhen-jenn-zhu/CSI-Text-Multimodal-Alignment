@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+#
+# Run retrieval + few-shot evaluation on all existing trained checkpoints.
+#
+# By default, results are written to a SEPARATE directory
+# ($MODEL_ROOT/results/new_evals/) to avoid overwriting original results.
+# Use --merge-in-place to merge new metrics into the original results dirs.
+#
+# Usage:
+#   # Default: write to new_evals/ (safe, no overwrites)
+#   bash scripts/run_new_evals_on_existing.sh
+#
+#   # Merge into original results (backs up metrics.json first)
+#   bash scripts/run_new_evals_on_existing.sh --merge-in-place
+#
+#   # Dry run
+#   DRY_RUN=1 bash scripts/run_new_evals_on_existing.sh
+#
+# Environment:
+#   Designed for SageMaker g5 instances.
+
+set -euo pipefail
+
+REPO_ROOT="${REPO_ROOT:-/home/sagemaker-user/CSI-Text-Multimodal-Alignment}"
+DATA_ROOT="${DATA_ROOT:-/home/sagemaker-user/Multimodal_CSI_Text/Dataset}"
+MODEL_ROOT="${MODEL_ROOT:-/home/sagemaker-user/Multimodal_CSI_Text/Model}"
+DRY_RUN="${DRY_RUN:-0}"
+
+MERGE_IN_PLACE=0
+for arg in "$@"; do
+    if [[ "$arg" == "--merge-in-place" ]]; then
+        MERGE_IN_PLACE=1
+    fi
+done
+
+CONFIG="${REPO_ROOT}/configs/experiment/sagemaker_g5.yaml"
+
+export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
+
+ALL_METHODS=(clip_infonce siglip language_bind centrobind barlow_twins masked_predict)
+ENCODER="resnet18_1d"
+
+DATASET_TASKS=(
+    "csibench:har"
+    "csibench:fall_detection"
+    "csibench:motion_source"
+    "csibench:proximity"
+    "csibench:user_id"
+    "xrf55:action_recognition"
+    "signfi:sign_recognition"
+)
+
+log() { echo -e "\n\033[1;34m[$(date '+%H:%M:%S')] $*\033[0m"; }
+log_warn() { echo -e "\033[1;33m[WARN] $*\033[0m"; }
+
+resolve_task_root() {
+    local dataset="$1" task="$2"
+    if [ "$dataset" = "csibench" ]; then
+        case "$task" in
+            har|proximity|user_id)
+                echo "${DATA_ROOT}/csibench/multitask/${task}"
+                ;;
+            *)
+                echo "${DATA_ROOT}/csibench/${task}"
+                ;;
+        esac
+    elif [ "$dataset" = "signfi" ]; then
+        echo "${DATA_ROOT}/signfi/sign_recognition"
+    elif [ "$dataset" = "xrf55" ]; then
+        echo "${DATA_ROOT}/xrf55/action_recognition"
+    fi
+}
+
+resolve_registry_parent() {
+    local dataset="$1" task="$2"
+    if [ "$dataset" = "csibench" ]; then
+        case "$task" in
+            har|proximity|user_id)
+                echo "${DATA_ROOT}/csibench/multitask"
+                ;;
+            *)
+                echo "${DATA_ROOT}/csibench"
+                ;;
+        esac
+    elif [ "$dataset" = "signfi" ]; then
+        echo "${DATA_ROOT}/signfi"
+    elif [ "$dataset" = "xrf55" ]; then
+        echo "${DATA_ROOT}/xrf55"
+    fi
+}
+
+n_total=0
+n_skipped=0
+n_evaluated=0
+
+if [[ "$MERGE_IN_PLACE" == "1" ]]; then
+    log "Mode: MERGE-IN-PLACE (will back up and merge into original results)"
+else
+    log "Mode: SEPARATE OUTPUT (results go to ${MODEL_ROOT}/results/new_evals/)"
+fi
+
+echo "================================================================="
+echo "Running retrieval + few-shot on existing checkpoints"
+echo "Methods: ${ALL_METHODS[*]}"
+echo "Tasks: ${#DATASET_TASKS[@]}"
+echo "================================================================="
+
+for dt_pair in "${DATASET_TASKS[@]}"; do
+    IFS=':' read -r dataset task <<< "$dt_pair"
+    TASK_ROOT=$(resolve_task_root "$dataset" "$task")
+    REGISTRY_PARENT=$(resolve_registry_parent "$dataset" "$task")
+
+    for method in "${ALL_METHODS[@]}"; do
+        n_total=$((n_total + 1))
+        ckpt="${MODEL_ROOT}/checkpoints/${dataset}-${task}-${method}/best.pt"
+
+        if [[ ! -f "$ckpt" ]]; then
+            log_warn "Checkpoint not found: ${ckpt} -- skipping"
+            n_skipped=$((n_skipped + 1))
+            continue
+        fi
+
+        original_results_dir="${MODEL_ROOT}/results/${dataset}/${task}/${method}_${ENCODER}"
+
+        if [[ "$MERGE_IN_PLACE" == "1" ]]; then
+            out_dir="${original_results_dir}"
+            if [[ -f "${out_dir}/metrics.json" ]]; then
+                backup="${out_dir}/metrics.json.bak.$(date +%Y%m%d_%H%M%S)"
+                cp "${out_dir}/metrics.json" "$backup"
+                log "Backed up ${out_dir}/metrics.json -> $(basename "$backup")"
+            fi
+        else
+            out_dir="${MODEL_ROOT}/results/new_evals/${dataset}/${task}/${method}_${ENCODER}"
+        fi
+
+        log "Evaluating: ${dataset}/${task}/${method}"
+
+        if [[ "$DRY_RUN" == "1" ]]; then
+            echo "[DRY RUN] python3 -m scripts.run_evaluate \\"
+            echo "    --checkpoint ${ckpt} \\"
+            echo "    --eval_protocols retrieval few_shot \\"
+            echo "    --output_dir ${out_dir}"
+            n_evaluated=$((n_evaluated + 1))
+            continue
+        fi
+
+        mkdir -p "$out_dir"
+
+        python3 -m scripts.run_evaluate \
+            --checkpoint "$ckpt" \
+            --config "$CONFIG" \
+            --override \
+                "dataset=${dataset}" \
+                "task=${task}" \
+                "method=${method}" \
+                "csi_encoder.name=${ENCODER}" \
+                "task_root=${TASK_ROOT}" \
+            --eval_protocols retrieval few_shot \
+            --output_dir "$out_dir" \
+            --no_timestamp \
+            --data_root "$DATA_ROOT" \
+            --registry_dir "$REGISTRY_PARENT"
+
+        n_evaluated=$((n_evaluated + 1))
+        log "  -> Saved to ${out_dir}"
+    done
+done
+
+echo ""
+echo "================================================================="
+echo "Done: ${n_evaluated} evaluated, ${n_skipped} skipped (no checkpoint), ${n_total} total"
+echo "================================================================="

@@ -382,6 +382,20 @@ class Trainer:
             if candidate.is_file():
                 text_embeddings_path = str(candidate)
 
+        held_out_cfg = self.config.get("held_out_classes", {})
+        class_filter = None
+        if held_out_cfg.get("enabled"):
+            raw_ids = held_out_cfg.get("seen_class_ids")
+            if isinstance(raw_ids, str):
+                class_filter = [int(x) for x in raw_ids.split(",") if x.strip()]
+            elif isinstance(raw_ids, (list, tuple)):
+                class_filter = [int(x) for x in raw_ids]
+            if class_filter and self.is_main:
+                logger.info(
+                    "Held-out classes: training on %d seen classes",
+                    len(class_filter),
+                )
+
         loader_config: dict[str, Any] = {
             "task_root": task_root,
             "h5_key": h5_key,
@@ -395,6 +409,7 @@ class Trainer:
             "persistent_workers": training_cfg.get("persistent_workers", True),
             "preload": training_cfg.get("preload", False),
             "augmentation": self.config.get("augmentation", {}),
+            "class_filter": class_filter,
         }
 
         loaders = build_dataloaders(

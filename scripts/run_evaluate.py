@@ -22,7 +22,9 @@ from evaluation import (
     CrossDatasetTransfer,
     CrossTaskTransfer,
     EmbeddingVisualizer,
+    FewShotLinearProbe,
     LinearProbe,
+    run_retrieval_evaluation,
     run_zero_shot_evaluation,
 )
 from evaluation.cross_task_transfer import TASK_TO_DATASET
@@ -603,6 +605,50 @@ def generate_summary_md(
                 lines.append(f"| {cid} | {f1:.4f} |")
             lines.append("")
 
+    ret = results.get("retrieval")
+    if ret and isinstance(ret, dict) and "csi_to_text" in ret:
+        c2t = ret["csi_to_text"]
+        t2c = ret["text_to_csi"]
+        lines.extend([
+            "## Retrieval",
+            "",
+            "| Direction | R@1 | R@5 | R@10 | Median Rank |",
+            "|-----------|-----|-----|------|-------------|",
+        ])
+        c2t_cells = [
+            f"{c2t.get('recall@1', 0):.4f}",
+            f"{c2t.get('recall@5', 0):.4f}",
+            f"{c2t.get('recall@10', 0):.4f}",
+            f"{c2t.get('median_rank', 0):.1f}",
+        ]
+        t2c_cells = [
+            f"{t2c.get('recall@1', 0):.4f}",
+            f"{t2c.get('recall@5', 0):.4f}",
+            f"{t2c.get('recall@10', 0):.4f}",
+            f"{t2c.get('median_rank', 0):.1f}",
+        ]
+        lines.append(f"| CSI -> Text | " + " | ".join(c2t_cells) + " |")
+        lines.append(f"| Text -> CSI | " + " | ".join(t2c_cells) + " |")
+        lines.append("")
+
+    fs = results.get("few_shot")
+    if fs and isinstance(fs, dict):
+        lines.extend([
+            "## Few-Shot Linear Probe",
+            "",
+            "| K-Shot | Accuracy (mean +/- std) | F1 (mean +/- std) |",
+            "|--------|-------------------------|-------------------|",
+        ])
+        for key in sorted(fs.keys()):
+            v = fs[key]
+            if isinstance(v, dict) and "accuracy_mean" in v:
+                lines.append(
+                    f"| {v.get('k', key)} | "
+                    f"{v['accuracy_mean']:.4f} +/- {v.get('accuracy_std', 0):.4f} | "
+                    f"{v.get('f1_mean', 0):.4f} +/- {v.get('f1_std', 0):.4f} |"
+                )
+        lines.append("")
+
     aq = results.get("ambient_qa")
     if aq and "joint_accuracy" in aq:
         lines.extend([
@@ -909,7 +955,7 @@ def _evaluate_single_task(
         "config": {"dataset": dataset, "task": task, "method": config.get("method")},
     }
 
-    needs_class_texts = any(p in eval_protocols for p in ("zero_shot", "visualization", "cross_task", "cross_dataset"))
+    needs_class_texts = any(p in eval_protocols for p in ("zero_shot", "visualization", "cross_task", "cross_dataset", "retrieval", "few_shot"))
     class_texts: dict = {}
     loaders: dict = {}
     if needs_class_texts:
@@ -920,7 +966,7 @@ def _evaluate_single_task(
 
     # --- Zero-shot ---
     zs_full: Optional[dict[str, Any]] = None
-    if "zero_shot" in eval_protocols or "visualization" in eval_protocols:
+    if any(p in eval_protocols for p in ("zero_shot", "visualization", "few_shot")):
         zs_full = run_zero_shot_evaluation(
             model=model,
             dataloader=loaders["test"],
@@ -1062,7 +1108,26 @@ def _evaluate_single_task(
 
         results["cross_dataset"] = cd_results
 
+    # --- Retrieval metrics ---
+    if "retrieval" in eval_protocols and needs_class_texts:
+        try:
+            retrieval_res = run_retrieval_evaluation(
+                model=model,
+                dataloader=loaders["test"],
+                class_texts=class_texts,
+                text_encoder=text_encoder,
+                text_projection=text_projection,
+                csi_projection=csi_projection,
+                device=str(device),
+            )
+            results["retrieval"] = _numpy_json(retrieval_res)
+        except Exception as e:
+            logger.warning("Retrieval evaluation failed: %s", e)
+            results["retrieval"] = {"error": str(e)}
+
     # --- Visualization + Linear Probe ---
+    train_x: Optional[np.ndarray] = None
+    train_y: Optional[np.ndarray] = None
     if "visualization" in eval_protocols and zs_full is not None:
         proto = zs_full["prototypes"].numpy()
         csi_np = zs_full["csi_embeddings"].numpy()
@@ -1093,6 +1158,35 @@ def _evaluate_single_task(
             ),
         }
 
+    # --- Few-shot linear probe ---
+    if "few_shot" in eval_protocols and zs_full is not None:
+        csi_np_fs = zs_full["csi_embeddings"].numpy()
+        labels_fs = zs_full["labels"]
+        if train_x is None:
+            train_emb_chunks_fs: list[torch.Tensor] = []
+            train_label_chunks_fs: list[np.ndarray] = []
+            model.eval()
+            ce_fs = model.csi_encoder
+            with torch.no_grad():
+                for batch in loaders["train"]:
+                    csi = batch["csi"].to(device)
+                    f = ce_fs(csi)
+                    if csi_projection is not None:
+                        f = csi_projection(f)
+                    train_emb_chunks_fs.append(f.cpu().numpy())
+                    train_label_chunks_fs.append(batch["labels"].numpy())
+            train_x = np.concatenate(train_emb_chunks_fs, axis=0)
+            train_y = np.concatenate(train_label_chunks_fs, axis=0)
+        try:
+            fs_probe = FewShotLinearProbe(
+                shots=(1, 5, 10, 50), n_trials=10,
+            )
+            fs_results = fs_probe.evaluate(train_x, train_y, csi_np_fs, labels_fs)
+            results["few_shot"] = _numpy_json(fs_results)
+        except Exception as e:
+            logger.warning("Few-shot evaluation failed: %s", e)
+            results["few_shot"] = {"error": str(e)}
+
     # Save combined metrics.json (merge with existing to preserve prior protocols)
     clean_results = _deep_strip_heavy(_numpy_json(results))
     _save_json(clean_results, out_dir / "metrics.json", merge=True)
@@ -1120,7 +1214,8 @@ def main() -> None:
         "--eval_protocols",
         nargs="+",
         default=["zero_shot", "ambient_qa", "cross_task", "cross_dataset", "visualization"],
-        help="Protocols to run",
+        help="Protocols to run. Options: zero_shot, ambient_qa, cross_task, "
+             "cross_dataset, visualization, retrieval, few_shot",
     )
     parser.add_argument("--output_dir", default="results", help="Directory for metrics and tables")
     parser.add_argument(
