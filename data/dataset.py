@@ -96,6 +96,7 @@ class CSITextDataset(Dataset):
         target_time_steps: int = 500,
         preload: bool = False,
         transform: Optional[Any] = None,
+        class_filter: Optional[set[int]] = None,
     ) -> None:
         self.task_root = Path(task_root)
         self.split = split
@@ -113,12 +114,24 @@ class CSITextDataset(Dataset):
 
         raw_ids = self.loader.get_split_ids(split)
         self.sample_ids = self.loader.filter_valid_ids(raw_ids)
+
+        all_labels = np.array(
+            [self.loader.get_label(sid) for sid in self.sample_ids]
+        )
+
+        if class_filter is not None:
+            mask = np.isin(all_labels, list(class_filter))
+            self.sample_ids = [sid for sid, m in zip(self.sample_ids, mask) if m]
+            all_labels = all_labels[mask]
+            logger.info(
+                "Class filter applied: kept %d/%d samples (%d classes)",
+                len(self.sample_ids), len(mask), len(class_filter),
+            )
+
         self._id_to_idx = {sid: i for i, sid in enumerate(self.sample_ids)}
         self.num_samples = len(self.sample_ids)
 
-        self.labels = np.array(
-            [self.loader.get_label(sid) for sid in self.sample_ids]
-        )
+        self.labels = all_labels
         self._build_label_map()
 
         self.registry: Optional[PairRegistry] = None
@@ -361,10 +374,18 @@ def build_dataloaders(
     prefetch_factor = config.get("prefetch_factor", 2)
     persistent_workers = config.get("persistent_workers", True) and num_workers > 0
 
+    class_filter_raw = config.get("class_filter")
+    class_filter = set(class_filter_raw) if class_filter_raw else None
+
     loaders: dict[str, DataLoader] = {}
     for split in ("train", "val", "test"):
         transform = train_augmentation if split == "train" else None
-        ds = CSITextDataset(split=split, transform=transform, **shared_kwargs)
+        split_class_filter = class_filter if split in ("train", "val") else None
+        ds = CSITextDataset(
+            split=split, transform=transform,
+            class_filter=split_class_filter,
+            **shared_kwargs,
+        )
 
         sampler = None
         shuffle = split == "train"
