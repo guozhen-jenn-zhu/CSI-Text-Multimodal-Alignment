@@ -15,7 +15,8 @@ REPO_ROOT="/home/sagemaker-user/CSI-Text-Multimodal-Alignment"
 DATA_ROOT="/home/sagemaker-user/Multimodal_CSI_Text/Dataset"
 MODEL_ROOT="/home/sagemaker-user/Multimodal_CSI_Text/Model"
 SIGNFI_ROOT="${DATA_ROOT}/signfi/sign_recognition"
-OUTPUT_DIR="${MODEL_ROOT}/results/held_out_classes"
+REGISTRY_PATH="${SIGNFI_ROOT}/pair_registry.json"
+OUTPUT_DIR="${MODEL_ROOT}/results/held_out_classes_fixed"
 CKPT_BASE="${MODEL_ROOT}/checkpoints/held_out_signfi"
 CKPT_PATH="${CKPT_BASE}/signfi-sign_recognition-clip_infonce/best.pt"
 
@@ -23,15 +24,17 @@ export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
 
 echo "================================================================="
 echo "Held-Out Classes Experiment: SignFi 200-seen / 76-held-out"
+echo "  (Fixed: uses pair registry for consistent class IDs)"
 echo "================================================================="
 
-# Step 1: Generate class split
+# Step 1: Generate class split (using pair registry for correct class IDs)
 echo ""
 echo "--- Step 1: Generating class split ---"
 python3 -m scripts.run_held_out_classes \
     --stage split \
     --signfi_root "${SIGNFI_ROOT}" \
-    --output_dir "${OUTPUT_DIR}"
+    --output_dir "${OUTPUT_DIR}" \
+    --registry_path "${REGISTRY_PATH}"
 
 # Step 2: Train on 200-class subset
 # We need to filter the training data to only include the 200 seen classes.
@@ -62,7 +65,7 @@ python3 -m training.train \
         held_out_classes.enabled=true \
         "held_out_classes.seen_class_ids=${SEEN_CLASSES}"
 
-# Step 3: Evaluate on held-out classes
+# Step 3: Evaluate on held-out classes (using pair registry for correct class texts)
 echo ""
 echo "--- Step 3: Evaluating on held-out classes ---"
 python3 -m scripts.run_held_out_classes \
@@ -70,7 +73,8 @@ python3 -m scripts.run_held_out_classes \
     --signfi_root "${SIGNFI_ROOT}" \
     --checkpoint "${CKPT_PATH}" \
     --output_dir "${OUTPUT_DIR}" \
-    --split_path "${OUTPUT_DIR}/held_out_class_split.json"
+    --split_path "${OUTPUT_DIR}/held_out_class_split.json" \
+    --registry_path "${REGISTRY_PATH}"
 
 echo ""
 echo "================================================================="
