@@ -247,6 +247,7 @@ CSIBENCH_TEMPLATES: Dict[str, List[Dict[str, Any]]] = {
                 "Someone stands very close, about half a meter from the device.",
                 "The individual is at a near distance of roughly 0.5 meters.",
                 "A person is positioned within 0.5 meters of the transmitter.",
+                "Someone is detected at very close range, around 0.5 meters away.",
             ],
         },
         {
@@ -257,6 +258,7 @@ CSIBENCH_TEMPLATES: Dict[str, List[Dict[str, Any]]] = {
                 "Someone stands about one and a half meters from the device.",
                 "The individual is at a moderate-close distance of roughly 1.5 meters.",
                 "A person is positioned within 1.5 meters of the transmitter.",
+                "Someone is detected at a short distance, around 1.5 meters away.",
             ],
         },
         {
@@ -267,6 +269,7 @@ CSIBENCH_TEMPLATES: Dict[str, List[Dict[str, Any]]] = {
                 "Someone stands about two and a half meters from the device.",
                 "The individual is at a moderate distance of roughly 2.5 meters.",
                 "A person is positioned within 2.5 meters of the transmitter.",
+                "Someone is detected at a medium distance, around 2.5 meters away.",
             ],
         },
         {
@@ -277,6 +280,7 @@ CSIBENCH_TEMPLATES: Dict[str, List[Dict[str, Any]]] = {
                 "Someone stands about three and a half meters from the device.",
                 "The individual is at a far distance of roughly 3.5 meters.",
                 "A person is positioned within 3.5 meters of the transmitter.",
+                "Someone is detected at a longer range, around 3.5 meters away.",
             ],
         },
     ],

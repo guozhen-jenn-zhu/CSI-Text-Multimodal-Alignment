@@ -964,6 +964,17 @@ def _evaluate_single_task(
         loader_cfg = _loader_config_from_experiment(config, task=task, dataset_name=dataset)
         loaders = build_dataloaders(loader_cfg)
 
+        # Remove phantom classes (text prototypes with zero data samples)
+        if loaders.get("test") and hasattr(loaders["test"].dataset, "int_labels"):
+            present = set(int(x) for x in np.unique(loaders["test"].dataset.int_labels))
+            phantom = set(class_texts.keys()) - present
+            if phantom:
+                logger.warning(
+                    "Removing %d phantom class IDs from class_texts "
+                    "(no test data): %s", len(phantom), phantom,
+                )
+                class_texts = {k: v for k, v in class_texts.items() if k in present}
+
     # --- Zero-shot ---
     zs_full: Optional[dict[str, Any]] = None
     if any(p in eval_protocols for p in ("zero_shot", "visualization", "few_shot")):
