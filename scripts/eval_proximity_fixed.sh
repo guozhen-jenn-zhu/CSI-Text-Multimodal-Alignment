@@ -8,8 +8,9 @@
 #   Stage 2: Supervised baseline summary
 #   Stage 3: Comparison table (old vs fixed)
 #   Stage 4: Multitask_all evaluation (7 tasks, proximity uses fixed data)
-#   Stage 5: Ambient QA evaluation (using multitask_fixed checkpoint)
+#   Stage 5: Ambient QA evaluation (using multitask_all_fixed checkpoint)
 #   Stage 6: Text granularity ablation eval (level1 / level1_level2)
+#   Stage 7: Ambient QA Level 1+2 (multitask_csibench_fixed, holistic scene QA)
 #
 # Results are saved under *_fixed/ dirs to preserve originals untouched.
 #
@@ -19,8 +20,9 @@
 #   STAGE=2 bash scripts/eval_proximity_fixed.sh    # supervised summary only
 #   STAGE=3 bash scripts/eval_proximity_fixed.sh    # tables only
 #   STAGE=4 bash scripts/eval_proximity_fixed.sh    # multitask_all eval only
-#   STAGE=5 bash scripts/eval_proximity_fixed.sh    # ambient QA only
+#   STAGE=5 bash scripts/eval_proximity_fixed.sh    # ambient QA (multitask_all) only
 #   STAGE=6 bash scripts/eval_proximity_fixed.sh    # text granularity only
+#   STAGE=7 bash scripts/eval_proximity_fixed.sh    # ambient QA Level 1+2 only
 
 set -euo pipefail
 
@@ -323,6 +325,69 @@ stage_6() {
 }
 
 # ------------------------------------------------------------------
+# Stage 7: Ambient QA (multitask_csibench_fixed -- Level 1 + Level 2)
+# ------------------------------------------------------------------
+stage_7() {
+    log_section "Stage 7: Ambient QA Level 1+2 (multitask_csibench_fixed)"
+
+    local mt_ckpt="${MODEL_ROOT}/checkpoints/csibench-multitask_fixed-clip_infonce/best.pt"
+    local results_dir="${MODEL_ROOT}/results/ambient_qa_fixed/multitask_csibench/clip_infonce_${ENCODER}"
+
+    if [[ ! -f "$mt_ckpt" ]]; then
+        log "SKIP (no checkpoint): csibench-multitask_fixed-clip_infonce"
+        log "  Run: STAGE=5 bash scripts/retrain_proximity_fixed.sh"
+        return 0
+    fi
+
+    local eval_tasks=(har proximity user_id)
+    for eval_task in "${eval_tasks[@]}"; do
+        local task_results="${results_dir}/${eval_task}"
+        log "Evaluating ambient QA on task=${eval_task}..."
+        python -m scripts.run_evaluate \
+            --checkpoint "$mt_ckpt" \
+            --config "$CONFIG_MT_CSIBENCH" \
+            --override \
+                "task=${eval_task}" \
+                "multitask.tasks.1.task_root=${TASK_ROOT}" \
+            --eval_protocols zero_shot ambient_qa \
+            --registry_dir "${DATA_ROOT}/csibench/multitask" \
+            --data_root "$DATA_ROOT" \
+            --output_dir "$task_results" \
+            --no_timestamp
+
+        log "  -> ${task_results}"
+
+        if [[ -f "${task_results}/metrics.json" ]]; then
+            python3 -c "
+import json
+with open('${task_results}/metrics.json') as f:
+    m = json.load(f)
+aq = m.get('ambient_qa', {})
+l1 = aq.get('level1', {})
+l2 = aq.get('level2', {})
+if l1:
+    print('  Level 1 (per-attribute):')
+    for attr, res in l1.get('per_attribute', {}).items():
+        if isinstance(res, dict):
+            print(f'    {attr}: accuracy={res.get(\"accuracy\", \"N/A\"):.4f}')
+    print(f'    joint_accuracy={l1.get(\"joint_accuracy\", \"N/A\")}')
+if l2:
+    print('  Level 2 (composite):')
+    print(f'    composite_accuracy={l2.get(\"composite_accuracy\", \"N/A\")}')
+    print(f'    top3_accuracy={l2.get(\"top3_accuracy\", \"N/A\")}')
+    print(f'    top5_accuracy={l2.get(\"top5_accuracy\", \"N/A\")}')
+    print(f'    mrr={l2.get(\"mrr\", \"N/A\")}')
+    decomp = l2.get('decomposed_per_attribute', {})
+    for attr, acc in decomp.items():
+        print(f'    decomposed {attr}: {acc}')
+elif 'error' in str(aq):
+    print(f'  ERROR: {aq}')
+"
+        fi
+    done
+}
+
+# ------------------------------------------------------------------
 # Run selected stage(s)
 # ------------------------------------------------------------------
 log "=== Proximity Fixed: Evaluation Pipeline ==="
@@ -350,6 +415,7 @@ case "$STAGE" in
     4) stage_4 ;;
     5) stage_5 ;;
     6) stage_6 ;;
+    7) stage_7 ;;
     all)
         stage_1
         stage_2
@@ -357,9 +423,10 @@ case "$STAGE" in
         stage_4
         stage_5
         stage_6
+        stage_7
         ;;
     *)
-        echo "Unknown STAGE: ${STAGE}. Use 1, 2, 3, 4, 5, 6, or all."
+        echo "Unknown STAGE: ${STAGE}. Use 1, 2, 3, 4, 5, 6, 7, or all."
         exit 1
         ;;
 esac

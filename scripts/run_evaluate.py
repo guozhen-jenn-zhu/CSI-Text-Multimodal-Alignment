@@ -348,6 +348,23 @@ def _normalize_csi_single(
     return csi.astype(np.float32)
 
 
+def _normalize_raw_label(task_name: str, raw_label: Any) -> str:
+    """Normalise a raw metadata label to the composite-template key format."""
+    s = str(raw_label)
+    if task_name == "user_id":
+        if s.startswith("U") and s[1:].isdigit():
+            return f"user_{int(s[1:])}"
+        return s
+    if task_name == "har":
+        return {"seated-breathing": "seated_breathing", "wavinghand": "waving"}.get(s, s)
+    if task_name == "proximity":
+        try:
+            return f"{float(s)}m"
+        except ValueError:
+            return s
+    return s
+
+
 def _run_ambient_qa_multitask(
     model: torch.nn.Module,
     text_encoder: torch.nn.Module,
@@ -356,6 +373,7 @@ def _run_ambient_qa_multitask(
     config: dict,
     device: torch.device,
     registry_dir: Optional[str] = None,
+    output_dir: Optional[Path] = None,
 ) -> dict[str, Any]:
     from data.metadata_loader import MetadataLoader
 
@@ -406,10 +424,17 @@ def _run_ambient_qa_multitask(
             emb_chunks.append(feat.cpu())
     csi_emb = torch.cat(emb_chunks, dim=0)
 
+    # Collect both integer labels (Level 1) and raw string labels (Level 2)
     tasks_and_labels: dict[str, np.ndarray] = {}
+    raw_labels_per_task: dict[str, list[str]] = {}
+
     for task_name, loader in task_loaders.items():
         attr = attr_map[task_name]
         raw_labels = [loader.get_label(sid) for sid in shared_ids]
+        raw_labels_per_task[task_name] = [
+            _normalize_raw_label(task_name, lbl) for lbl in raw_labels
+        ]
+
         lmap_path = Path(loader.task_root) / "metadata" / "label_mapping.json"
         if lmap_path.is_file():
             with open(lmap_path) as _lf:
@@ -423,12 +448,96 @@ def _run_ambient_qa_multitask(
 
     aq = AmbientQA(text_encoder, text_projection, device=str(device))
     _register_ambient_answers(aq, config, registry_dir=registry_dir)
-    return aq.evaluate_multi_attribute(csi_emb, tasks_and_labels, list(tasks_and_labels.keys()))
+
+    # Level 1: per-attribute QA
+    level1 = aq.evaluate_multi_attribute(
+        csi_emb, tasks_and_labels, list(tasks_and_labels.keys()),
+    )
+
+    result: dict[str, Any] = {"level1": level1}
+
+    # Level 2: composite (holistic scene) QA
+    has_all_tasks = all(t in raw_labels_per_task for t in ("user_id", "har", "proximity"))
+    if has_all_tasks:
+        gt_tuples = [
+            (user, act, prox)
+            for user, act, prox in zip(
+                raw_labels_per_task["user_id"],
+                raw_labels_per_task["har"],
+                raw_labels_per_task["proximity"],
+            )
+        ]
+        try:
+            level2 = aq.evaluate_composite_qa(csi_emb, gt_tuples)
+            result["level2"] = level2
+
+            if output_dir is not None:
+                viz_dir = Path(output_dir)
+                viz_dir.mkdir(parents=True, exist_ok=True)
+
+                AmbientQA.generate_composite_confusion(
+                    pred_indices=level2["predictions"],
+                    gt_indices=level2["gt_indices"],
+                    index_to_tuple=level2["index_to_tuple"],
+                    save_path=str(viz_dir / "composite_confusion_matrix.png"),
+                )
+                AmbientQA.plot_similarity_heatmap(
+                    sim_matrix=level2["sim_matrix"],
+                    gt_indices=level2["gt_indices"],
+                    index_to_tuple=level2["index_to_tuple"],
+                    labels_dict=tasks_and_labels,
+                    save_path=str(viz_dir / "composite_similarity_heatmap.png"),
+                    samples_per_activity=2,
+                )
+        except Exception as e:
+            logger.warning("Level 2 composite QA failed: %s", e)
+            result["level2"] = {"error": str(e)}
+    else:
+        logger.warning(
+            "Level 2 composite QA skipped: missing tasks. Have: %s",
+            list(raw_labels_per_task.keys()),
+        )
+
+    return result
 
 
 # ------------------------------------------------------------------
 # Serialisation helpers
 # ------------------------------------------------------------------
+
+
+def _strip_heavy_ambient_qa(aq: dict[str, Any]) -> dict[str, Any]:
+    """Strip large arrays from the ambient QA result dict.
+
+    Handles the nested Level 1 / Level 2 structure produced by
+    ``_run_ambient_qa_multitask``.
+    """
+    drop_keys = {"predictions", "gt_indices", "sim_matrix", "index_to_tuple"}
+    out: dict[str, Any] = {}
+
+    for level_key in ("level1", "level2"):
+        level = aq.get(level_key)
+        if level is None:
+            continue
+        stripped: dict[str, Any] = {}
+        for k, v in level.items():
+            if k in drop_keys:
+                continue
+            if k == "per_attribute":
+                stripped[k] = {
+                    a: {x: y for x, y in d.items() if x != "predictions"}
+                    for a, d in v.items()
+                }
+            else:
+                stripped[k] = v
+        out[level_key] = stripped
+
+    for k, v in aq.items():
+        if k not in ("level1", "level2"):
+            out[k] = v
+
+    return _numpy_json(out)
+
 
 def _numpy_json(obj: Any) -> Any:
     if isinstance(obj, np.ndarray):
@@ -993,11 +1102,13 @@ def _evaluate_single_task(
     # --- Ambient QA ---
     if "ambient_qa" in eval_protocols and dataset == "csibench":
         try:
+            aq_dir = out_dir / "ambient_qa"
             aq_res = _run_ambient_qa_multitask(
                 model, text_encoder, text_projection, csi_projection, config, device,
                 registry_dir=registry_dir,
+                output_dir=aq_dir,
             )
-            results["ambient_qa"] = _strip_heavy(aq_res)
+            results["ambient_qa"] = _strip_heavy_ambient_qa(aq_res)
         except Exception as e:
             logger.warning("Ambient QA skipped: %s", e)
             results["ambient_qa"] = {"error": str(e)}

@@ -288,6 +288,54 @@ stage_4() {
 }
 
 # ------------------------------------------------------------------
+# Stage 5: Multitask CSI-Bench (5 tasks, fixed proximity for ambient QA)
+# ------------------------------------------------------------------
+stage_5() {
+    log_section "Stage 5: Retrain multitask_csibench (clip_infonce, 5 CSI-Bench tasks, fixed proximity)"
+
+    local CONFIG_MT="${REPO_ROOT}/configs/experiment/sagemaker_multitask_csibench.yaml"
+    local ckpt="${MODEL_ROOT}/checkpoints/csibench-multitask_fixed-clip_infonce/best.pt"
+
+    if [[ -f "$ckpt" ]]; then
+        log "SKIP (checkpoint exists): csibench-multitask_fixed-clip_infonce"
+        return 0
+    fi
+
+    local mt_task_names=(har proximity user_id fall_detection motion_source)
+    local mt_task_roots=(
+        "${DATA_ROOT}/csibench/multitask/har"
+        "${TASK_ROOT}"
+        "${DATA_ROOT}/csibench/multitask/user_id"
+        "${DATA_ROOT}/csibench/fall_detection"
+        "${DATA_ROOT}/csibench/motion_source"
+    )
+
+    local mt_overrides=(
+        method=clip_infonce
+        "csi_encoder.name=${ENCODER}"
+        "text_encoder.name=${TEXT_ENCODER}"
+        task=multitask_fixed
+        "logging.checkpoint_dir=${MODEL_ROOT}/checkpoints"
+    )
+
+    for i in "${!mt_task_names[@]}"; do
+        local tr="${mt_task_roots[$i]}"
+        mt_overrides+=(
+            "multitask.tasks.${i}.task_root=${tr}"
+            "multitask.tasks.${i}.registry_path=${tr}/pair_registry.json"
+            "multitask.tasks.${i}.text_embeddings_path=${tr}/text_embeddings_${TEXT_ENCODER}.h5"
+        )
+    done
+
+    log "Training multitask_csibench with clip_infonce (fixed proximity)..."
+    run_cmd python -m training.multitask_train \
+        --config "$CONFIG_MT" \
+        --override "${mt_overrides[@]}"
+
+    log "Stage 5 complete."
+}
+
+# ------------------------------------------------------------------
 # Run selected stage(s)
 # ------------------------------------------------------------------
 log "=== Proximity Fix: Retrain Pipeline ==="
@@ -302,15 +350,17 @@ case "$STAGE" in
     2) stage_2 ;;
     3) stage_3 ;;
     4) stage_4 ;;
+    5) stage_5 ;;
     all)
         stage_0
         stage_1
         stage_2
         stage_3
         stage_4
+        stage_5
         ;;
     *)
-        echo "Unknown STAGE: ${STAGE}. Use 0, 1, 2, 3, 4, or all."
+        echo "Unknown STAGE: ${STAGE}. Use 0, 1, 2, 3, 4, 5, or all."
         exit 1
         ;;
 esac
