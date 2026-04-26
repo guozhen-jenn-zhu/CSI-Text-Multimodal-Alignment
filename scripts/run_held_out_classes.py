@@ -332,6 +332,52 @@ def evaluate_held_out(
         except Exception as e:
             logger.warning("Retrieval on held-out failed: %s", e)
 
+    # --- Few-shot linear probe on held-out classes ---
+    if mask.sum() > 0:
+        logger.info("Running few-shot linear probe on held-out classes...")
+        train_loader = loaders["train"]
+        csi_encoder = model.csi_encoder if hasattr(model, "csi_encoder") else model
+        fs_csi_proj = csi_projection
+        if fs_csi_proj is None and hasattr(model, "csi_projection"):
+            fs_csi_proj = model.csi_projection
+        model.eval()
+
+        train_emb_chunks: list[torch.Tensor] = []
+        train_label_chunks: list[np.ndarray] = []
+        with torch.no_grad():
+            for batch in train_loader:
+                csi = batch["csi"].to(device)
+                feats = csi_encoder(csi)
+                if fs_csi_proj is not None:
+                    feats = fs_csi_proj(feats)
+                train_emb_chunks.append(feats.cpu())
+                train_label_chunks.append(batch["labels"].numpy())
+
+        all_train_embs = torch.cat(train_emb_chunks, dim=0).numpy()
+        all_train_labels = np.concatenate(train_label_chunks)
+
+        train_ho_mask = np.isin(all_train_labels, list(held_out_ids))
+        train_ho_embs = all_train_embs[train_ho_mask]
+        train_ho_labels = all_train_labels[train_ho_mask]
+        logger.info(
+            "Few-shot support pool: %d train samples across %d held-out classes",
+            len(train_ho_labels), len(np.unique(train_ho_labels)),
+        )
+
+        try:
+            from evaluation.few_shot import FewShotLinearProbe
+
+            fs_probe = FewShotLinearProbe(shots=(1, 5, 10), n_trials=10)
+            fs_results = fs_probe.evaluate(
+                train_ho_embs, train_ho_labels,
+                filtered_embs.numpy() if hasattr(filtered_embs, "numpy") else filtered_embs,
+                filtered_labels,
+            )
+            results["held_out_few_shot"] = _numpy_json(fs_results)
+        except Exception as e:
+            logger.warning("Few-shot evaluation failed: %s", e)
+            results["held_out_few_shot"] = {"error": str(e)}
+
     results["split_info"] = {
         "n_seen": len(seen_ids),
         "n_held_out": len(held_out_ids),
@@ -384,6 +430,26 @@ def evaluate_held_out(
             f"- CSI->Text R@10: {c2t.get('recall@10', 0)*100:.1f}%",
             "",
         ])
+
+    fs = results.get("held_out_few_shot", {})
+    if fs and "error" not in fs:
+        lines.extend([
+            "## Few-Shot Linear Probe (Held-Out Classes)",
+            "",
+            "| K-Shot | Accuracy (mean +/- std) | Weighted F1 (mean +/- std) |",
+            "|--------|------------------------|---------------------------|",
+        ])
+        for k_shot, metrics in sorted(
+            fs.items(),
+            key=lambda x: x[1].get("k", 0) if isinstance(x[1], dict) else 0,
+        ):
+            if isinstance(metrics, dict) and "accuracy_mean" in metrics:
+                lines.append(
+                    f"| {k_shot} | "
+                    f"{metrics['accuracy_mean']*100:.1f}% +/- {metrics['accuracy_std']*100:.1f}% | "
+                    f"{metrics.get('f1_mean', 0)*100:.1f}% +/- {metrics.get('f1_std', 0)*100:.1f}% |"
+                )
+        lines.append("")
 
     (out_path / "held_out_evaluation.md").write_text("\n".join(lines))
     logger.info("Results saved to %s", out_path)
