@@ -309,15 +309,6 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
 
-    # #region agent log
-    if isinstance(ckpt, dict):
-        print(f"[DEBUG] ckpt keys: {list(ckpt.keys())}")
-        if "config" in ckpt:
-            _cc = ckpt["config"]
-            print(f"[DEBUG] ckpt config text_encoder: {_cc.get('text_encoder')}")
-            print(f"[DEBUG] ckpt config method: {_cc.get('method')}")
-    # #endregion
-
     if args.config is not None:
         with open(args.config) as f:
             config: dict[str, Any] = yaml.safe_load(f)
@@ -333,10 +324,6 @@ def main() -> None:
             parser.error("Checkpoint has no embedded config; provide --config explicitly.")
         config = _merge_configs(ckpt["config"])
 
-    # #region agent log
-    print(f"[DEBUG] final config text_encoder: {config.get('text_encoder')}")
-    print(f"[DEBUG] final config method: {config.get('method')}")
-    # #endregion
 
     if args.override:
         _apply_overrides(config, args.override)
@@ -402,16 +389,17 @@ def main() -> None:
         )
 
     # --- Print summary table ------------------------------------------------
-    print("\n" + "=" * 75)
+    w = 95
+    print("\n" + "=" * w)
     print("Open-Vocabulary HAR Evaluation — Summary")
-    print("=" * 75)
-    print(f"{'Prompt Family':<25s} {'Style':<30s} {'#T/C':>4s} {'Acc':>8s} {'wF1':>8s}")
-    print("-" * 75)
+    print("=" * w)
+    print(f"{'Prompt Family':<30s} {'Style':<45s} {'#T/C':>4s} {'Acc':>8s} {'wF1':>8s}")
+    print("-" * w)
     for name, m in all_results.items():
         style = m.get("description", "Training templates (baseline)")
         tc = m.get("texts_per_class", "?")
-        print(f"{name:<25s} {style:<30s} {tc:>4} {m['accuracy']:>7.1%} {m['weighted_f1']:>7.1%}")
-    print("=" * 75 + "\n")
+        print(f"{name:<30s} {style:<45s} {tc:>4} {m['accuracy']:>7.1%} {m['weighted_f1']:>7.1%}")
+    print("=" * w + "\n")
 
     # --- Save results (back up any previous file first) ---------------------
     out_dir = Path(args.output_dir)
