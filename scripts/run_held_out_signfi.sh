@@ -15,13 +15,18 @@
 #
 #   # Full pipeline (split + train + evaluate):
 #   bash scripts/run_held_out_signfi.sh --retrain
+#
+#   # Retrain with fewer GPUs (more gradient steps per epoch):
+#   bash scripts/run_held_out_signfi.sh --retrain --gpus=2
 
 set -euo pipefail
 
 RETRAIN=false
+MAX_GPUS=""
 for arg in "$@"; do
     case "$arg" in
         --retrain) RETRAIN=true ;;
+        --gpus=*) MAX_GPUS="${arg#*=}" ;;
     esac
 done
 
@@ -56,6 +61,9 @@ detect_gpus() {
 }
 
 NUM_GPUS=$(detect_gpus)
+if [[ -n "${MAX_GPUS}" ]] && [[ "${MAX_GPUS}" -lt "${NUM_GPUS}" ]]; then
+    NUM_GPUS="${MAX_GPUS}"
+fi
 
 echo "================================================================="
 echo "Held-Out Classes Experiment: SignFi 200-seen / 76-held-out"
@@ -123,7 +131,10 @@ print(','.join(str(c) for c in split['seen_class_ids']))
     echo "  registry:   ${REGISTRY_PATH}"
     echo "  embeddings: ${TEXT_EMB_PATH}"
 
+    VISIBLE_DEVICES=$(seq -s, 0 $((NUM_GPUS - 1)))
+
     if [[ "${NUM_GPUS}" -gt 1 ]]; then
+        CUDA_VISIBLE_DEVICES="${VISIBLE_DEVICES}" \
         python3 -m torch.distributed.run \
             --nproc_per_node "${NUM_GPUS}" \
             --master_port 29500 \
@@ -131,6 +142,7 @@ print(','.join(str(c) for c in split['seen_class_ids']))
             --config "${CONFIG}" \
             --override "${OVERRIDES[@]}"
     else
+        CUDA_VISIBLE_DEVICES="0" \
         python3 -m training.train \
             --config "${CONFIG}" \
             --override "${OVERRIDES[@]}"
