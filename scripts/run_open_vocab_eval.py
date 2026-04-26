@@ -389,16 +389,16 @@ def main() -> None:
         )
 
     # --- Print summary table ------------------------------------------------
-    w = 95
+    w = 105
     print("\n" + "=" * w)
     print("Open-Vocabulary HAR Evaluation — Summary")
     print("=" * w)
-    print(f"{'Prompt Family':<30s} {'Style':<45s} {'#T/C':>4s} {'Acc':>8s} {'wF1':>8s}")
+    print(f"{'Prompt Family':<30s} {'Style':<52s} {'#T/C':>4s} {'Acc':>8s} {'wF1':>8s}")
     print("-" * w)
     for name, m in all_results.items():
         style = m.get("description", "Training templates (baseline)")
         tc = m.get("texts_per_class", "?")
-        print(f"{name:<30s} {style:<45s} {tc:>4} {m['accuracy']:>7.1%} {m['weighted_f1']:>7.1%}")
+        print(f"{name:<30s} {style:<52s} {tc:>4} {m['accuracy']:>7.1%} {m['weighted_f1']:>7.1%}")
     print("=" * w + "\n")
 
     # --- Save results (back up any previous file first) ---------------------
