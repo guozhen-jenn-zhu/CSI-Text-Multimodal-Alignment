@@ -281,6 +281,7 @@ def _register_ambient_answers(
     """
     task_attr_map = {
         "har": "activity",
+        "proximity": "proximity",
         "user_id": "user_identity",
     }
 
