@@ -42,11 +42,12 @@ METHODS=(clip_infonce siglip language_bind centrobind barlow_twins masked_predic
 ENCODER="resnet18_1d"
 SEEDS=(42 123 456)
 
-# Tasks that are safe to upload (proximity excluded — use proximity_fixed only)
+# Tasks to sync (includes _fixed/_fourclass variants for corrected data)
 SAFE_TASKS=(
     "csibench:har"
     "csibench:fall_detection"
     "csibench:motion_source"
+    "csibench:motion_source_fourclass"
     "csibench:user_id"
     "csibench:proximity_fixed"
     "xrf55:action_recognition"
@@ -96,7 +97,7 @@ if [[ "$PULL_ONLY" == "0" ]]; then
     done
 
     # Upload summary files
-    for summary_file in multi_seed_summary.json proximity_fixed_summary.json; do
+    for summary_file in multi_seed_summary.json proximity_fixed_summary.json motion_source_fourclass_summary.json; do
         if [[ -f "${LOCAL_BASE}/${summary_file}" ]]; then
             aws s3 cp "${LOCAL_BASE}/${summary_file}" "${S3_BASE}/${summary_file}" --quiet
             log "  -> Uploaded ${summary_file}"
@@ -143,7 +144,7 @@ for dt_pair in "${SAFE_TASKS[@]}"; do
 done
 
 # Pull summary files
-for summary_file in multi_seed_summary.json proximity_fixed_summary.json; do
+for summary_file in multi_seed_summary.json proximity_fixed_summary.json motion_source_fourclass_summary.json; do
     aws s3 cp "${S3_BASE}/${summary_file}" "${PAPER}/${summary_file}" --quiet 2>/dev/null || true
 done
 

@@ -1,21 +1,28 @@
 #!/usr/bin/env bash
 #
-# Fix and re-run multi-seed for motion_source (4-class).
+# Re-run multi-seed for motion_source with the correct 4-class label mapping.
 #
-# ROOT CAUSE: label_mapping.json on S3 is the old 2-class binary mapping
-# (Fan/IRobot/Pet → 0 "Nonhuman", Human → 1), while the pair_registry
-# and text templates use 4 fine-grained classes (Fan=0, Human=1, IRobot=2,
-# Pet=3). Seeds 123/456 picked up this 2-class mapping, collapsing classes
-# 2+3 into class 0. Seed-42 was copied from original runs that used the
-# correct mapping (either via sorted-unique fallback or fourclass file).
+# ROOT CAUSE: label_mapping.json at csibench/motion_source/metadata/ is the old
+# 2-class binary mapping (Fan/IRobot/Pet → 0 "Nonhuman", Human → 1), while the
+# pair_registry and text templates use 4 fine-grained classes (Fan=0, Human=1,
+# IRobot=2, Pet=3). Seeds 123/456 picked up this 2-class mapping, collapsing
+# classes 2+3 into class 0.
 #
-# FIX: Replace label_mapping.json with label_mapping_fourclass.json
-# (already exists on S3), then re-train seeds 123/456 and re-evaluate all 3.
+# APPROACH (non-destructive — follows the proximity_fixed pattern):
+#   - Creates a new data directory csibench/motion_source_fourclass/ with the
+#     correct label_mapping.json and symlinks to the original data/splits.
+#   - Trains using task=motion_source_fourclass so checkpoints are saved to a
+#     separate path (csibench-motion_source_fourclass-{method}/best.pt).
+#   - Results saved to multi_seed/csibench/motion_source_fourclass/.
+#   - Original results at multi_seed/csibench/motion_source/ are UNTOUCHED.
+#   - Original checkpoints at multi_seed/seed_N/csibench-motion_source-{method}/
+#     are UNTOUCHED.
 #
-# Checkpoints:
-#   seed 42:  MODEL_ROOT/checkpoints/csibench-motion_source-{method}/best.pt
-#   seed N:   MODEL_ROOT/checkpoints/multi_seed/seed_N/csibench-motion_source-{method}/best.pt
-# Results:
+# Checkpoints (new):
+#   seed N:  MODEL_ROOT/checkpoints/multi_seed/seed_N/csibench-motion_source_fourclass-{method}/best.pt
+# Results (new):
+#   MODEL_ROOT/results/multi_seed/csibench/motion_source_fourclass/{method}_resnet18_1d/seed_{seed}/metrics.json
+# Old results (preserved):
 #   MODEL_ROOT/results/multi_seed/csibench/motion_source/{method}_resnet18_1d/seed_{seed}/metrics.json
 #
 # Usage:
@@ -37,9 +44,12 @@ NEW_SEEDS=(123 456)
 ALL_SEEDS=(42 123 456)
 
 CONFIG="${REPO_ROOT}/configs/experiment/sagemaker_g5.yaml"
-TASK_ROOT="${DATA_ROOT}/csibench/motion_source"
+
+# Original data directory (UNTOUCHED)
+TASK_ROOT_ORIG="${DATA_ROOT}/csibench/motion_source"
+# New data directory with fourclass label_mapping.json
+TASK_ROOT_FIXED="${DATA_ROOT}/csibench/motion_source_fourclass"
 REGISTRY_PARENT="${DATA_ROOT}/csibench"
-S3_METADATA="s3://rnd-sagemaker/Multimodal_CSI_Text/Dataset/csibench/motion_source/metadata"
 
 export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
 cd "$REPO_ROOT"
@@ -56,50 +66,77 @@ run_cmd() {
 
 n_new=$((${#METHODS[@]} * ${#NEW_SEEDS[@]}))
 echo "================================================================="
-echo "Multi-Seed Motion Source Fix (4-class)"
-echo "  Methods:  ${METHODS[*]}"
-echo "  Seeds:    ${ALL_SEEDS[*]}"
-echo "  Reuse seed-${ORIG_SEED}: ${#METHODS[@]} evals (from original runs)"
+echo "Multi-Seed Motion Source (4-class, non-destructive)"
+echo "  Methods:       ${METHODS[*]}"
+echo "  Seeds:         ${ALL_SEEDS[*]}"
+echo "  Reuse seed-42: ${#METHODS[@]} evals (from original 4-class runs)"
 echo "  New train+eval (seeds ${NEW_SEEDS[*]}): ${n_new} runs"
+echo ""
+echo "  Original data: ${TASK_ROOT_ORIG}  (UNTOUCHED)"
+echo "  Fixed data:    ${TASK_ROOT_FIXED}  (new, symlinked)"
+echo "  Old results:   multi_seed/csibench/motion_source/     (PRESERVED)"
+echo "  New results:   multi_seed/csibench/motion_source_fourclass/"
 echo "================================================================="
 
-# ---- Phase 0: Fix label_mapping.json ----
-log "Phase 0: Fixing label_mapping.json (2-class → 4-class)"
+# ---- Phase 0: Create motion_source_fourclass data directory ----
+log "Phase 0: Setting up motion_source_fourclass data directory"
 
-LM_LOCAL="${TASK_ROOT}/metadata/label_mapping.json"
-LM_FOURCLASS="${TASK_ROOT}/metadata/label_mapping_fourclass.json"
-LM_BACKUP="${TASK_ROOT}/metadata/label_mapping_2class_backup.json"
+if [[ "$DRY_RUN" != "1" ]]; then
+    mkdir -p "${TASK_ROOT_FIXED}/metadata"
 
-if [[ -f "$LM_LOCAL" ]]; then
-    NUM_CLS=$(python3 -c "import json; print(json.load(open('${LM_LOCAL}'))['num_classes'])")
-    if [[ "$NUM_CLS" == "2" ]]; then
-        log "  Current label_mapping.json is 2-class. Backing up and replacing."
-        run_cmd cp "$LM_LOCAL" "$LM_BACKUP"
-
-        if [[ -f "$LM_FOURCLASS" ]]; then
-            run_cmd cp "$LM_FOURCLASS" "$LM_LOCAL"
-            log "  -> Replaced with label_mapping_fourclass.json"
-        else
-            log "  -> label_mapping_fourclass.json not found locally. Downloading from S3."
-            run_cmd aws s3 cp "${S3_METADATA}/label_mapping_fourclass.json" "$LM_LOCAL"
-        fi
-    elif [[ "$NUM_CLS" == "4" ]]; then
-        log "  label_mapping.json already has 4 classes. No fix needed."
+    # Copy the correct 4-class label_mapping.json
+    if [[ -f "${TASK_ROOT_ORIG}/metadata/label_mapping_fourclass.json" ]]; then
+        cp "${TASK_ROOT_ORIG}/metadata/label_mapping_fourclass.json" \
+           "${TASK_ROOT_FIXED}/metadata/label_mapping.json"
+        log "  -> Copied label_mapping_fourclass.json as label_mapping.json"
     else
-        log "  [WARN] Unexpected num_classes=${NUM_CLS} in label_mapping.json"
+        log "  [ERROR] label_mapping_fourclass.json not found at ${TASK_ROOT_ORIG}/metadata/"
+        log "  Downloading from S3..."
+        aws s3 cp "s3://rnd-sagemaker/Multimodal_CSI_Text/Dataset/csibench/motion_source/metadata/label_mapping_fourclass.json" \
+            "${TASK_ROOT_FIXED}/metadata/label_mapping.json"
     fi
-else
-    log "  label_mapping.json not found locally. Downloading fourclass version from S3."
-    mkdir -p "$(dirname "$LM_LOCAL")"
-    run_cmd aws s3 cp "${S3_METADATA}/label_mapping_fourclass.json" "$LM_LOCAL"
-fi
 
-# Verify
-if [[ "$DRY_RUN" != "1" ]] && [[ -f "$LM_LOCAL" ]]; then
+    # Symlink the sample_metadata.csv
+    ln -sf "${TASK_ROOT_ORIG}/metadata/sample_metadata.csv" \
+           "${TASK_ROOT_FIXED}/metadata/sample_metadata.csv" 2>/dev/null || \
+        cp "${TASK_ROOT_ORIG}/metadata/sample_metadata.csv" \
+           "${TASK_ROOT_FIXED}/metadata/sample_metadata.csv"
+
+    # Symlink splits directory
+    if [[ -d "${TASK_ROOT_ORIG}/splits" ]] && [[ ! -e "${TASK_ROOT_FIXED}/splits" ]]; then
+        ln -sf "${TASK_ROOT_ORIG}/splits" "${TASK_ROOT_FIXED}/splits"
+    fi
+
+    # Symlink pair_registry.json
+    if [[ -f "${TASK_ROOT_ORIG}/pair_registry.json" ]] && [[ ! -e "${TASK_ROOT_FIXED}/pair_registry.json" ]]; then
+        ln -sf "${TASK_ROOT_ORIG}/pair_registry.json" "${TASK_ROOT_FIXED}/pair_registry.json"
+    fi
+
+    # Symlink text embeddings
+    for emb_file in "${TASK_ROOT_ORIG}"/text_embeddings_*.h5; do
+        if [[ -f "$emb_file" ]]; then
+            bn="$(basename "$emb_file")"
+            if [[ ! -e "${TASK_ROOT_FIXED}/${bn}" ]]; then
+                ln -sf "$emb_file" "${TASK_ROOT_FIXED}/${bn}"
+            fi
+        fi
+    done
+
+    # Symlink data subdirectories (sub_Fan, sub_Human, sub_IRobot, sub_Pet)
+    for subdir in "${TASK_ROOT_ORIG}"/sub_*; do
+        if [[ -d "$subdir" ]]; then
+            bn="$(basename "$subdir")"
+            if [[ ! -e "${TASK_ROOT_FIXED}/${bn}" ]]; then
+                ln -sf "$subdir" "${TASK_ROOT_FIXED}/${bn}"
+            fi
+        fi
+    done
+
+    # Verify the label mapping
     log "  Verification:"
     python3 -c "
 import json
-with open('${LM_LOCAL}') as f:
+with open('${TASK_ROOT_FIXED}/metadata/label_mapping.json') as f:
     lm = json.load(f)
 print(f'    num_classes: {lm[\"num_classes\"]}')
 print(f'    label_to_idx: {lm[\"label_to_idx\"]}')
@@ -107,68 +144,46 @@ assert lm['num_classes'] == 4, f'Expected 4 classes, got {lm[\"num_classes\"]}'
 assert len(lm['label_to_idx']) == 4, f'Expected 4 labels, got {len(lm[\"label_to_idx\"])}'
 print('    -> OK: 4-class mapping verified')
 "
+
+    log "  Directory listing:"
+    ls -la "${TASK_ROOT_FIXED}/" | head -15
+else
+    echo "[DRY RUN] Would create ${TASK_ROOT_FIXED}/ with symlinks"
 fi
 
-# Also upload the fix to S3 so future runs use it
-log "  Uploading fixed label_mapping.json to S3"
-run_cmd aws s3 cp "$LM_LOCAL" "${S3_METADATA}/label_mapping.json"
-run_cmd aws s3 cp "$LM_BACKUP" "${S3_METADATA}/label_mapping_2class_backup.json" 2>/dev/null || true
-
-# ---- Phase 1: Evaluate / copy seed-42 from original runs ----
-log "Phase 1: Seed-${ORIG_SEED} results"
+# ---- Phase 1: Copy seed-42 from original 4-class runs ----
+log "Phase 1: Seed-${ORIG_SEED} results (copy from original 4-class runs)"
 
 for method in "${METHODS[@]}"; do
-    seed42_out="${RESULTS_DIR}/csibench/motion_source/${method}_${ENCODER}/seed_${ORIG_SEED}"
+    seed42_out="${RESULTS_DIR}/csibench/motion_source_fourclass/${method}_${ENCODER}/seed_${ORIG_SEED}"
     ckpt42="${MODEL_ROOT}/checkpoints/csibench-motion_source-${method}/best.pt"
 
-    # Check if existing seed-42 results are valid (4-class)
     if [[ -f "${seed42_out}/metrics.json" ]]; then
-        n_cm_rows=$(python3 -c "
-import json
-with open('${seed42_out}/metrics.json') as f:
-    data = json.load(f)
-cm = data['zero_shot']['confusion_matrix']
-# Count rows with nonzero sum
-nonzero = sum(1 for row in cm if sum(row) > 0)
-print(nonzero)
-")
-        if [[ "$n_cm_rows" == "4" ]]; then
-            echo "  [exists, 4-class OK] ${method} seed-${ORIG_SEED}"
-            continue
-        else
-            log "  [STALE] ${method} seed-${ORIG_SEED} has ${n_cm_rows}-class CM. Re-evaluating."
-        fi
+        echo "  [exists] ${method} seed-${ORIG_SEED}"
+        continue
     fi
 
-    # Try to copy from original results
+    # Copy from original results (these are known to be 4-class valid)
     orig_results="${MODEL_ROOT}/results/csibench/motion_source/${method}_${ENCODER}"
     if [[ -f "${orig_results}/metrics.json" ]]; then
-        n_cm_rows=$(python3 -c "
-import json
-with open('${orig_results}/metrics.json') as f:
-    data = json.load(f)
-cm = data['zero_shot']['confusion_matrix']
-nonzero = sum(1 for row in cm if sum(row) > 0)
-print(nonzero)
-")
-        if [[ "$n_cm_rows" == "4" ]]; then
-            log "  Copying valid 4-class seed-42 results for ${method}"
-            mkdir -p "${seed42_out}"
-            cp "${orig_results}/metrics.json" "${seed42_out}/metrics.json"
-            [[ -f "${orig_results}/tsne_embeddings.png" ]] && cp "${orig_results}/tsne_embeddings.png" "${seed42_out}/tsne_embeddings.png"
-            echo "  [copied] ${method} seed-${ORIG_SEED}"
-            continue
+        log "  Copying original 4-class results for ${method}"
+        run_cmd mkdir -p "${seed42_out}"
+        run_cmd cp "${orig_results}/metrics.json" "${seed42_out}/metrics.json"
+        if [[ -f "${orig_results}/tsne_embeddings.png" ]]; then
+            run_cmd cp "${orig_results}/tsne_embeddings.png" "${seed42_out}/tsne_embeddings.png"
         fi
+        echo "  [copied] ${method} seed-${ORIG_SEED}"
+        continue
     fi
 
-    # Otherwise, re-evaluate the seed-42 checkpoint with the fixed mapping
+    # Fallback: re-evaluate seed-42 checkpoint with the fixed mapping
     if [[ ! -f "$ckpt42" ]]; then
-        echo "  [WARN] No seed-42 checkpoint: ${ckpt42}"
+        echo "  [WARN] No seed-42 checkpoint or results: ${method}"
         continue
     fi
 
     log "  Re-evaluating seed-42 for ${method} with 4-class mapping"
-    mkdir -p "${seed42_out}"
+    run_cmd mkdir -p "${seed42_out}"
     run_cmd python3 -m scripts.run_evaluate \
         --checkpoint "${ckpt42}" \
         --config "${CONFIG}" \
@@ -177,7 +192,7 @@ print(nonzero)
             task=motion_source \
             "method=${method}" \
             "csi_encoder.name=${ENCODER}" \
-            "task_root=${TASK_ROOT}" \
+            "task_root=${TASK_ROOT_FIXED}" \
         --eval_protocols zero_shot retrieval few_shot visualization \
         --output_dir "${seed42_out}" \
         --no_timestamp \
@@ -187,57 +202,43 @@ print(nonzero)
     echo "  [evaluated] ${method} seed-${ORIG_SEED}"
 done
 
-# ---- Phase 2: Delete stale seeds 123/456 results, re-train + evaluate ----
+# ---- Phase 2: Train + evaluate new seeds (separate checkpoint paths) ----
 log "Phase 2: Training new seeds (${NEW_SEEDS[*]}) with 4-class mapping"
 
 for method in "${METHODS[@]}"; do
     for seed in "${NEW_SEEDS[@]}"; do
-        run_id="motion_source-${method}-seed${seed}"
+        run_id="motion_source_fourclass-${method}-seed${seed}"
         ckpt_base="${MODEL_ROOT}/checkpoints/multi_seed/seed_${seed}"
-        ckpt_path="${ckpt_base}/csibench-motion_source-${method}/best.pt"
-        out_dir="${RESULTS_DIR}/csibench/motion_source/${method}_${ENCODER}/seed_${seed}"
+        ckpt_path="${ckpt_base}/csibench-motion_source_fourclass-${method}/best.pt"
+        out_dir="${RESULTS_DIR}/csibench/motion_source_fourclass/${method}_${ENCODER}/seed_${seed}"
 
         log "${run_id}"
 
-        # Remove stale results from buggy 2-class run
         if [[ -f "${out_dir}/metrics.json" ]]; then
-            n_cm_rows=$(python3 -c "
-import json
-with open('${out_dir}/metrics.json') as f:
-    data = json.load(f)
-cm = data['zero_shot']['confusion_matrix']
-nonzero = sum(1 for row in cm if sum(row) > 0)
-print(nonzero)
-")
-            if [[ "$n_cm_rows" == "4" ]]; then
-                echo "  -> Valid 4-class results exist, skipping."
-                continue
-            else
-                log "  -> Removing stale ${n_cm_rows}-class results"
-                rm -f "${out_dir}/metrics.json" "${out_dir}/tsne_embeddings.png"
-            fi
+            echo "  -> Results exist, skipping."
+            continue
         fi
 
-        # Remove stale checkpoint (trained with 2-class mapping)
-        if [[ -f "${ckpt_path}" ]]; then
-            log "  -> Removing stale 2-class checkpoint: ${ckpt_path}"
-            rm -f "${ckpt_path}"
+        run_cmd mkdir -p "${out_dir}"
+
+        # Train with the fourclass data directory
+        if [[ ! -f "${ckpt_path}" ]]; then
+            log "  Training ${method} seed=${seed}..."
+            run_cmd python3 -m training.train \
+                --config "${CONFIG}" \
+                --override \
+                    dataset=csibench \
+                    task=motion_source_fourclass \
+                    "method=${method}" \
+                    "csi_encoder.name=${ENCODER}" \
+                    "training.seed=${seed}" \
+                    training.max_epochs=200 \
+                    training.patience=20 \
+                    "task_root=${TASK_ROOT_FIXED}" \
+                    "logging.checkpoint_dir=${ckpt_base}"
+        else
+            echo "  Checkpoint exists: ${ckpt_path}"
         fi
-
-        mkdir -p "${out_dir}"
-
-        # Train with fixed 4-class mapping
-        log "  Training ${method} seed=${seed}..."
-        run_cmd python3 -m training.train \
-            --config "${CONFIG}" \
-            --override \
-                dataset=csibench \
-                task=motion_source \
-                "method=${method}" \
-                "csi_encoder.name=${ENCODER}" \
-                "training.seed=${seed}" \
-                "task_root=${TASK_ROOT}" \
-                "logging.checkpoint_dir=${ckpt_base}"
 
         # Evaluate
         if [[ ! -f "${ckpt_path}" && "$DRY_RUN" != "1" ]]; then
@@ -254,7 +255,7 @@ print(nonzero)
                 task=motion_source \
                 "method=${method}" \
                 "csi_encoder.name=${ENCODER}" \
-                "task_root=${TASK_ROOT}" \
+                "task_root=${TASK_ROOT_FIXED}" \
             --eval_protocols zero_shot retrieval few_shot visualization \
             --output_dir "${out_dir}" \
             --no_timestamp \
@@ -278,12 +279,12 @@ methods = ["clip_infonce", "siglip", "language_bind", "centrobind", "barlow_twin
 seeds = [42, 123, 456]
 encoder = "${ENCODER}"
 
-print("\n===== Motion Source (4-class fixed): Validation =====\n")
+print("\n===== Motion Source (4-class, motion_source_fourclass): Validation =====\n")
 
 all_ok = True
 for method in methods:
     for seed in seeds:
-        mf = results_dir / "csibench" / "motion_source" / f"{method}_{encoder}" / f"seed_{seed}" / "metrics.json"
+        mf = results_dir / "csibench" / "motion_source_fourclass" / f"{method}_{encoder}" / f"seed_{seed}" / "metrics.json"
         if not mf.exists():
             print(f"  [MISSING] {method} seed_{seed}")
             all_ok = False
@@ -300,15 +301,15 @@ for method in methods:
         else:
             print(f"  [OK]  {method} seed_{seed}: acc={acc*100:.1f}%, 4-class CM verified")
 
-print("\n===== Motion Source: Multi-Seed Summary =====\n")
-print(f"{'Method':<20} {'ZS Acc (mean±std)':<22} {'Seeds':>6}")
-print("-" * 52)
+print("\n===== Motion Source (4-class): Multi-Seed Summary =====\n")
+print(f"{'Method':<20} {'ZS Acc (mean+/-std)':<22} {'Seeds':>6}")
+print("-" * 56)
 
 summary = {}
 for method in methods:
     accs = []
     for seed in seeds:
-        mf = results_dir / "csibench" / "motion_source" / f"{method}_{encoder}" / f"seed_{seed}" / "metrics.json"
+        mf = results_dir / "csibench" / "motion_source_fourclass" / f"{method}_{encoder}" / f"seed_{seed}" / "metrics.json"
         if mf.exists():
             with open(mf) as f:
                 data = json.load(f)
@@ -316,7 +317,7 @@ for method in methods:
             if acc is not None:
                 accs.append(acc)
 
-    key = f"csibench/motion_source/{method}"
+    key = f"csibench/motion_source_fourclass/{method}"
     if accs:
         mean_acc = float(np.mean(accs))
         std_acc = float(np.std(accs))
@@ -327,30 +328,30 @@ for method in methods:
             "n_seeds": len(accs),
         }
         vals_str = ", ".join(f"{a*100:.1f}" for a in accs)
-        print(f"{method:<20} {mean_acc*100:.1f} ± {std_acc*100:.1f}%{len(accs):>10}  [{vals_str}]")
+        print(f"{method:<20} {mean_acc*100:.1f} +/- {std_acc*100:.1f}%{len(accs):>10}  [{vals_str}]")
     else:
         print(f"{method:<20} {'N/A':<22} {'0':>6}")
 
-out = results_dir / "motion_source_fixed_summary.json"
+out = results_dir / "motion_source_fourclass_summary.json"
 with open(out, "w") as f:
     json.dump(summary, f, indent=2)
 print(f"\nSaved to {out}")
 
 if all_ok:
-    print("\n✓ All 18 metrics files validated (4-class, consistent CMs)")
+    print("\nAll 18 metrics files validated (4-class, consistent CMs)")
 else:
-    print("\n✗ Some results are missing or invalid — check above")
+    print("\nSome results are missing or invalid -- check above")
 PYEOF
 
 # ---- Phase 4: Upload fixed results to S3 ----
-log "Phase 4: Uploading fixed motion_source results to S3"
+log "Phase 4: Uploading motion_source_fourclass results to S3"
 
 S3_RESULTS="s3://rnd-sagemaker/Multimodal_CSI_Text/Model/results"
 
 for method in "${METHODS[@]}"; do
     for seed in "${ALL_SEEDS[@]}"; do
-        local_dir="${RESULTS_DIR}/csibench/motion_source/${method}_${ENCODER}/seed_${seed}"
-        s3_dir="${S3_RESULTS}/multi_seed/csibench/motion_source/${method}_${ENCODER}/seed_${seed}"
+        local_dir="${RESULTS_DIR}/csibench/motion_source_fourclass/${method}_${ENCODER}/seed_${seed}"
+        s3_dir="${S3_RESULTS}/multi_seed/csibench/motion_source_fourclass/${method}_${ENCODER}/seed_${seed}"
         if [[ -d "$local_dir" ]]; then
             run_cmd aws s3 sync "$local_dir" "$s3_dir" --quiet
         fi
@@ -358,15 +359,21 @@ for method in "${METHODS[@]}"; do
 done
 
 # Upload summary
-s3_summary="${S3_RESULTS}/multi_seed/motion_source_fixed_summary.json"
-local_summary="${RESULTS_DIR}/motion_source_fixed_summary.json"
+local_summary="${RESULTS_DIR}/motion_source_fourclass_summary.json"
+s3_summary="${S3_RESULTS}/multi_seed/motion_source_fourclass_summary.json"
 if [[ -f "$local_summary" ]]; then
     run_cmd aws s3 cp "$local_summary" "$s3_summary" --quiet
 fi
 
-log "  -> Uploaded to ${S3_RESULTS}/multi_seed/csibench/motion_source/"
+log "  -> Uploaded to ${S3_RESULTS}/multi_seed/csibench/motion_source_fourclass/"
 
-log "Multi-seed motion source fix complete."
+log "Multi-seed motion source (4-class) complete."
+echo ""
+echo "Nothing was deleted or overwritten:"
+echo "  Old buggy results preserved at: multi_seed/csibench/motion_source/"
+echo "  Old buggy checkpoints at:       multi_seed/seed_N/csibench-motion_source-{method}/"
+echo "  New fixed results at:           multi_seed/csibench/motion_source_fourclass/"
+echo "  New fixed checkpoints at:       multi_seed/seed_N/csibench-motion_source_fourclass-{method}/"
 echo ""
 echo "Next steps:"
 echo "  1. Pull results locally: bash scripts/upload_multi_seed_results.sh --pull-only"
