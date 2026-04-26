@@ -309,6 +309,15 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
 
+    # #region agent log
+    if isinstance(ckpt, dict):
+        print(f"[DEBUG] ckpt keys: {list(ckpt.keys())}")
+        if "config" in ckpt:
+            _cc = ckpt["config"]
+            print(f"[DEBUG] ckpt config text_encoder: {_cc.get('text_encoder')}")
+            print(f"[DEBUG] ckpt config method: {_cc.get('method')}")
+    # #endregion
+
     if args.config is not None:
         with open(args.config) as f:
             config: dict[str, Any] = yaml.safe_load(f)
@@ -323,6 +332,11 @@ def main() -> None:
         if not (isinstance(ckpt, dict) and "config" in ckpt):
             parser.error("Checkpoint has no embedded config; provide --config explicitly.")
         config = _merge_configs(ckpt["config"])
+
+    # #region agent log
+    print(f"[DEBUG] final config text_encoder: {config.get('text_encoder')}")
+    print(f"[DEBUG] final config method: {config.get('method')}")
+    # #endregion
 
     if args.override:
         _apply_overrides(config, args.override)
