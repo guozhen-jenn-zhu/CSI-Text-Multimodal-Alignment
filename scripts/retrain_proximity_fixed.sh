@@ -8,6 +8,7 @@
 #   Stage 2: Retrain supervised baseline (4 classes)
 #   Stage 3: Retrain multitask_all (clip_infonce, all 7 tasks with fixed proximity)
 #   Stage 4: Text granularity ablation (level1 / level1_level2 on proximity)
+#   Stage 5: Retrain multitask_scene (3 scene tasks: har+proximity+user_id)
 #
 # Checkpoints are saved to csibench-proximity_fixed-{method}/best.pt
 # to avoid overwriting the original (buggy) checkpoints.
@@ -288,33 +289,31 @@ stage_4() {
 }
 
 # ------------------------------------------------------------------
-# Stage 5: Multitask CSI-Bench (5 tasks, fixed proximity for ambient QA)
+# Stage 5: Multitask Scene (3 tasks: har + proximity + user_id, fixed proximity)
 # ------------------------------------------------------------------
 stage_5() {
-    log_section "Stage 5: Retrain multitask_csibench (clip_infonce, 5 CSI-Bench tasks, fixed proximity)"
+    log_section "Stage 5: Retrain multitask_scene (clip_infonce, 3 scene tasks, fixed proximity)"
 
-    local CONFIG_MT="${REPO_ROOT}/configs/experiment/sagemaker_multitask_csibench.yaml"
-    local ckpt="${MODEL_ROOT}/checkpoints/csibench-multitask_fixed-clip_infonce/best.pt"
+    local CONFIG_MT="${REPO_ROOT}/configs/experiment/sagemaker_multitask_scene.yaml"
+    local ckpt="${MODEL_ROOT}/checkpoints/csibench-scene_fixed-clip_infonce/best.pt"
 
     if [[ -f "$ckpt" ]]; then
-        log "SKIP (checkpoint exists): csibench-multitask_fixed-clip_infonce"
+        log "SKIP (checkpoint exists): csibench-scene_fixed-clip_infonce"
         return 0
     fi
 
-    local mt_task_names=(har proximity user_id fall_detection motion_source)
+    local mt_task_names=(har proximity user_id)
     local mt_task_roots=(
         "${DATA_ROOT}/csibench/multitask/har"
         "${TASK_ROOT}"
         "${DATA_ROOT}/csibench/multitask/user_id"
-        "${DATA_ROOT}/csibench/fall_detection"
-        "${DATA_ROOT}/csibench/motion_source"
     )
 
     local mt_overrides=(
         method=clip_infonce
         "csi_encoder.name=${ENCODER}"
         "text_encoder.name=${TEXT_ENCODER}"
-        task=multitask_fixed
+        task=scene_fixed
         "logging.checkpoint_dir=${MODEL_ROOT}/checkpoints"
     )
 
@@ -327,7 +326,7 @@ stage_5() {
         )
     done
 
-    log "Training multitask_csibench with clip_infonce (fixed proximity)..."
+    log "Training multitask_scene with clip_infonce (fixed proximity)..."
     run_cmd python -m training.multitask_train \
         --config "$CONFIG_MT" \
         --override "${mt_overrides[@]}"

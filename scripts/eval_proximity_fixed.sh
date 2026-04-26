@@ -10,7 +10,7 @@
 #   Stage 4: Multitask_all evaluation (7 tasks, proximity uses fixed data)
 #   Stage 5: Ambient QA evaluation (using multitask_all_fixed checkpoint)
 #   Stage 6: Text granularity ablation eval (level1 / level1_level2)
-#   Stage 7: Ambient QA Level 1+2 (multitask_csibench_fixed, holistic scene QA)
+#   Stage 7: Ambient QA Level 1+2 (multitask_scene_fixed, holistic scene QA)
 #
 # Results are saved under *_fixed/ dirs to preserve originals untouched.
 #
@@ -41,6 +41,7 @@ METHODS=(clip_infonce siglip language_bind centrobind barlow_twins masked_predic
 CONFIG="${REPO_ROOT}/configs/experiment/sagemaker_g5.yaml"
 CONFIG_MT_ALL="${REPO_ROOT}/configs/experiment/sagemaker_multitask_all.yaml"
 CONFIG_MT_CSIBENCH="${REPO_ROOT}/configs/experiment/sagemaker_multitask_csibench.yaml"
+CONFIG_MT_SCENE="${REPO_ROOT}/configs/experiment/sagemaker_multitask_scene.yaml"
 
 TASK_ROOT="${DATA_ROOT}/csibench/multitask/proximity"
 REG_PATH="${TASK_ROOT}/pair_registry.json"
@@ -325,16 +326,16 @@ stage_6() {
 }
 
 # ------------------------------------------------------------------
-# Stage 7: Ambient QA (multitask_csibench_fixed -- Level 1 + Level 2)
+# Stage 7: Ambient QA (multitask_scene_fixed -- Level 1 + Level 2)
 # ------------------------------------------------------------------
 stage_7() {
-    log_section "Stage 7: Ambient QA Level 1+2 (multitask_csibench_fixed)"
+    log_section "Stage 7: Ambient QA Level 1+2 (multitask_scene_fixed)"
 
-    local mt_ckpt="${MODEL_ROOT}/checkpoints/csibench-multitask_fixed-clip_infonce/best.pt"
-    local results_dir="${MODEL_ROOT}/results/ambient_qa_fixed/multitask_csibench/clip_infonce_${ENCODER}"
+    local mt_ckpt="${MODEL_ROOT}/checkpoints/csibench-scene_fixed-clip_infonce/best.pt"
+    local results_dir="${MODEL_ROOT}/results/ambient_qa_fixed/multitask_scene/clip_infonce_${ENCODER}"
 
     if [[ ! -f "$mt_ckpt" ]]; then
-        log "SKIP (no checkpoint): csibench-multitask_fixed-clip_infonce"
+        log "SKIP (no checkpoint): csibench-scene_fixed-clip_infonce"
         log "  Run: STAGE=5 bash scripts/retrain_proximity_fixed.sh"
         return 0
     fi
@@ -345,7 +346,7 @@ stage_7() {
         log "Evaluating ambient QA on task=${eval_task}..."
         python -m scripts.run_evaluate \
             --checkpoint "$mt_ckpt" \
-            --config "$CONFIG_MT_CSIBENCH" \
+            --config "$CONFIG_MT_SCENE" \
             --override \
                 "task=${eval_task}" \
                 "multitask.tasks.1.task_root=${TASK_ROOT}" \
