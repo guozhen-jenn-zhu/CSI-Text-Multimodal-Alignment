@@ -140,8 +140,6 @@ for method in "${METHODS[@]}"; do
                     "csi_encoder.name=${ENCODER}" \
                     "text_encoder.name=${TEXT_ENCODER}" \
                     "training.seed=${seed}" \
-                    "training.max_epochs=200" \
-                    "training.early_stopping_patience=20" \
                     "task_root=${TASK_ROOT}" \
                     "registry_path=${REG_PATH}" \
                     "text_embeddings_path=${TEXT_EMB}" \
@@ -181,16 +179,15 @@ done
 # ---- Phase 3: Aggregate ----
 log "Phase 3: Aggregating multi-seed results"
 
-run_cmd python3 - <<'PYEOF'
+python3 - <<PYEOF
 import json
 import numpy as np
 from pathlib import Path
-import os
 
-results_dir = Path(os.environ.get("MODEL_ROOT", "/home/sagemaker-user/Multimodal_CSI_Text/Model")) / "results" / "multi_seed"
+results_dir = Path("${RESULTS_DIR}")
 methods = ["clip_infonce", "siglip", "language_bind", "centrobind", "barlow_twins", "masked_predict"]
 seeds = [42, 123, 456]
-encoder = "resnet18_1d"
+encoder = "${ENCODER}"
 
 summary = {}
 print("\n===== Proximity Fixed: Multi-Seed Summary =====\n")
@@ -218,7 +215,7 @@ for method in methods:
             "values": accs,
             "n_seeds": len(accs),
         }
-        print(f"{method:<20} {mean_acc*100:.1f} ± {std_acc*100:.1f}%{len(accs):>10}")
+        print(f"{method:<20} {mean_acc*100:.1f} +/- {std_acc*100:.1f}%{len(accs):>10}")
     else:
         print(f"{method:<20} {'N/A':<22} {'0':>6}")
 
