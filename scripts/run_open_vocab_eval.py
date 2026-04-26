@@ -284,7 +284,11 @@ def main() -> None:
         description="Open-vocabulary HAR evaluation with novel text prompts",
     )
     parser.add_argument("--checkpoint", required=True, help="Path to trained checkpoint (.pt)")
-    parser.add_argument("--config", required=True, help="Experiment YAML or config embedded in checkpoint")
+    parser.add_argument(
+        "--config", default=None,
+        help="Experiment YAML config.  Optional — if omitted the config "
+             "embedded inside the checkpoint is used.",
+    )
     parser.add_argument(
         "--data_root", default=None,
         help="Override data root (base dir containing csibench/). "
@@ -302,19 +306,23 @@ def main() -> None:
     args = parser.parse_args()
 
     # --- Load config -------------------------------------------------------
-    with open(args.config) as f:
-        config: dict[str, Any] = yaml.safe_load(f)
-    config = _merge_configs(config)
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
 
-    if isinstance(ckpt, dict) and "config" in ckpt:
-        file_ds_cfg = config.get("dataset_config", {})
+    if args.config is not None:
+        with open(args.config) as f:
+            config: dict[str, Any] = yaml.safe_load(f)
+        config = _merge_configs(config)
+        if isinstance(ckpt, dict) and "config" in ckpt:
+            file_ds_cfg = config.get("dataset_config", {})
+            config = _merge_configs(ckpt["config"])
+            merged_ds = dict(file_ds_cfg)
+            merged_ds.update(config.get("dataset_config", {}))
+            config["dataset_config"] = merged_ds
+    else:
+        if not (isinstance(ckpt, dict) and "config" in ckpt):
+            parser.error("Checkpoint has no embedded config; provide --config explicitly.")
         config = _merge_configs(ckpt["config"])
-        merged_ds = dict(file_ds_cfg)
-        merged_ds.update(config.get("dataset_config", {}))
-        config["dataset_config"] = merged_ds
 
     if args.override:
         _apply_overrides(config, args.override)
