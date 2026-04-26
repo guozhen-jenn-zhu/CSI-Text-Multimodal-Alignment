@@ -218,11 +218,12 @@ class AmbientQA:
     # Level 2: Composite (holistic scene) QA
     # ------------------------------------------------------------------
 
-    COMPOSITE_QUESTION = "Describe the scene:"
-
     @torch.no_grad()
     def build_composite_embeddings(self) -> tuple[torch.Tensor, list[tuple[str, str, str]]]:
         """Embed all 140 composite scene descriptions.
+
+        Uses the same caption format as training (no extra prefix) so that
+        evaluation text embeddings align with the learned embedding space.
 
         Returns:
             embeddings: ``[140, D]`` L2-normalised embeddings.
@@ -242,7 +243,7 @@ class AmbientQA:
         # (needed for the confusion matrix and heatmap visualizations).
         for activity, prox, user in itertools.product(activities, proximities, users):
             caption = generate_composite_caption(user, activity, prox, template_idx=0)
-            texts.append(f"{self.COMPOSITE_QUESTION} {caption}")
+            texts.append(caption)
             index_to_tuple.append((user, activity, prox))
 
         emb = self.text_encoder.encode(texts).to(self.device)
