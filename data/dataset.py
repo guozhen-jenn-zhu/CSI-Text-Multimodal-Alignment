@@ -119,10 +119,14 @@ class CSITextDataset(Dataset):
             [self.loader.get_label(sid) for sid in self.sample_ids]
         )
 
+        self.labels = all_labels
+        self._build_label_map()
+
         if class_filter is not None:
-            mask = np.isin(all_labels, list(class_filter))
+            mask = np.isin(self.int_labels, list(class_filter))
             self.sample_ids = [sid for sid, m in zip(self.sample_ids, mask) if m]
-            all_labels = all_labels[mask]
+            self.labels = self.labels[mask]
+            self.int_labels = self.int_labels[mask]
             logger.info(
                 "Class filter applied: kept %d/%d samples (%d classes)",
                 len(self.sample_ids), len(mask), len(class_filter),
@@ -130,9 +134,6 @@ class CSITextDataset(Dataset):
 
         self._id_to_idx = {sid: i for i, sid in enumerate(self.sample_ids)}
         self.num_samples = len(self.sample_ids)
-
-        self.labels = all_labels
-        self._build_label_map()
 
         self.registry: Optional[PairRegistry] = None
         if registry_path is not None and Path(registry_path).is_file():
