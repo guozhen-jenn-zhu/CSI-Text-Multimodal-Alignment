@@ -107,13 +107,12 @@ class EmbeddingVisualizer:
         if compact_legend is None:
             compact_legend = n_classes > 20
 
-        cmap_name = "nipy_spectral" if n_classes > 20 else "tab20"
-        cmap = plt.cm.get_cmap(cmap_name, n_classes)
+        cmap = plt.cm.get_cmap("tab20", 20)
 
         fig, ax = plt.subplots(figsize=figsize)
         for i, cls in enumerate(unique_labels):
             mask = labels == cls
-            colour = cmap(i)
+            colour = cmap(i % 20)
             label_kw = {}
             if not compact_legend:
                 name = class_names.get(cls, str(cls)) if class_names else str(cls)
@@ -126,7 +125,7 @@ class EmbeddingVisualizer:
 
         text_labels = unique_labels[:len(text_2d)]
         for i, cls in enumerate(text_labels):
-            colour = cmap(i)
+            colour = cmap(i % 20)
             label_kw = {}
             if not compact_legend:
                 name = class_names.get(cls, str(cls)) if class_names else str(cls)
