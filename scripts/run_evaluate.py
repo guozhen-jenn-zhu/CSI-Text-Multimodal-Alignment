@@ -1258,6 +1258,9 @@ def _evaluate_single_task(
         viz = EmbeddingVisualizer()
         fig_path = out_dir / "tsne_embeddings.png"
         viz.plot_tsne(csi_np, proto, labels, save_path=str(fig_path))
+        emb_path = out_dir / "tsne_data.npz"
+        np.savez(emb_path, csi_embeddings=csi_np, text_prototypes=proto, labels=labels)
+        logger.info("Saved embedding data to %s", emb_path)
         train_emb_chunks: list[torch.Tensor] = []
         train_label_chunks: list[np.ndarray] = []
         model.eval()

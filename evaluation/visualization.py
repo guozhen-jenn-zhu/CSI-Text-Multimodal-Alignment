@@ -32,6 +32,7 @@ class EmbeddingVisualizer:
         perplexity: float = 30.0,
         save_path: Optional[str] = None,
         figsize: tuple[int, int] = (10, 8),
+        compact_legend: Optional[bool] = None,
     ) -> plt.Figure:
         """Plot t-SNE of CSI and text embeddings coloured by class.
 
@@ -51,6 +52,7 @@ class EmbeddingVisualizer:
             csi_proj, text_proj, labels, class_names,
             title="t-SNE: CSI & Text Embeddings",
             save_path=save_path, figsize=figsize,
+            compact_legend=compact_legend,
         )
 
     def plot_umap(
@@ -63,6 +65,7 @@ class EmbeddingVisualizer:
         min_dist: float = 0.1,
         save_path: Optional[str] = None,
         figsize: tuple[int, int] = (10, 8),
+        compact_legend: Optional[bool] = None,
     ) -> plt.Figure:
         """Plot UMAP of CSI and text embeddings coloured by class."""
         import umap
@@ -83,6 +86,7 @@ class EmbeddingVisualizer:
             csi_proj, text_proj, labels, class_names,
             title="UMAP: CSI & Text Embeddings",
             save_path=save_path, figsize=figsize,
+            compact_legend=compact_legend,
         )
 
     def _scatter_plot(
@@ -94,42 +98,65 @@ class EmbeddingVisualizer:
         title: str,
         save_path: Optional[str],
         figsize: tuple[int, int],
+        compact_legend: Optional[bool] = None,
     ) -> plt.Figure:
+        from matplotlib.lines import Line2D
+
         unique_labels = np.unique(labels)
-        cmap = plt.cm.get_cmap("tab20", len(unique_labels))
+        n_classes = len(unique_labels)
+        if compact_legend is None:
+            compact_legend = n_classes > 20
+
+        cmap_name = "nipy_spectral" if n_classes > 20 else "tab20"
+        cmap = plt.cm.get_cmap(cmap_name, n_classes)
 
         fig, ax = plt.subplots(figsize=figsize)
         for i, cls in enumerate(unique_labels):
             mask = labels == cls
-            name = class_names.get(cls, str(cls)) if class_names else str(cls)
             colour = cmap(i)
+            label_kw = {}
+            if not compact_legend:
+                name = class_names.get(cls, str(cls)) if class_names else str(cls)
+                label_kw["label"] = f"{name} (CSI)"
             ax.scatter(
                 csi_2d[mask, 0], csi_2d[mask, 1],
                 c=[colour], marker=self.CSI_MARKER,
-                alpha=self.CSI_ALPHA, label=f"{name} (CSI)", s=30,
+                alpha=self.CSI_ALPHA, s=30, **label_kw,
             )
 
         text_labels = unique_labels[:len(text_2d)]
         for i, cls in enumerate(text_labels):
-            name = class_names.get(cls, str(cls)) if class_names else str(cls)
             colour = cmap(i)
+            label_kw = {}
+            if not compact_legend:
+                name = class_names.get(cls, str(cls)) if class_names else str(cls)
+                label_kw["label"] = f"{name} (text)"
             ax.scatter(
                 text_2d[i, 0], text_2d[i, 1],
                 c=[colour], marker=self.TEXT_MARKER,
                 alpha=self.TEXT_ALPHA, s=self.TEXT_MARKER_SIZE,
-                edgecolors="black", linewidths=0.8,
-                label=f"{name} (text)",
+                edgecolors="black", linewidths=0.8, **label_kw,
             )
 
         ax.set_title(title, fontsize=14)
-        ax.legend(
-            bbox_to_anchor=(1.02, 1), loc="upper left",
-            fontsize=8, markerscale=0.8,
-        )
+        if compact_legend:
+            handles = [
+                Line2D([0], [0], marker="o", color="grey", linestyle="",
+                       alpha=0.6, markersize=6, label="CSI embeddings"),
+                Line2D([0], [0], marker="*", color="grey", linestyle="",
+                       markersize=12, markeredgecolor="black",
+                       markeredgewidth=0.8, label="Text prototypes"),
+            ]
+            ax.legend(handles=handles, loc="upper right", fontsize=10)
+        else:
+            ax.legend(
+                bbox_to_anchor=(1.02, 1), loc="upper left",
+                fontsize=8, markerscale=0.8,
+            )
         fig.tight_layout()
 
         if save_path:
-            fig.savefig(save_path, dpi=150, bbox_inches="tight")
+            fig.savefig(save_path, dpi=300, bbox_inches="tight")
             logger.info("Saved plot to %s", save_path)
 
         return fig

@@ -21,7 +21,7 @@ text_encoder:
   frozen: true
 
 projection:
-  dim: 512
+  dim: 256
   hidden_dim: 1024
   num_layers: 2
 
