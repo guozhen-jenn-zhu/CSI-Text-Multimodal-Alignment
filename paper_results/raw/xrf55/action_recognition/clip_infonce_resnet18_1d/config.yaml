@@ -1,0 +1,96 @@
+dataset: xrf55
+task: action_recognition
+method: clip_infonce
+dataset_config:
+  name: csibench
+  source_prefix: CSI-Bench
+  tasks:
+    fall_detection:
+      folder: FallDetection
+      h5_key: CSI_amps
+      type: standalone
+    motion_source:
+      folder: MotionSourceRecognition
+      h5_key: CSI_amps
+      type: standalone
+      fine_grained_labels: true
+  multitask:
+    folder: Multitask/H5
+    h5_key: CSI_amps
+    h5_subdir: sub_Human
+    tasks:
+      har:
+        metadata_folder: HumanActivityRecognition
+      proximity:
+        metadata_folder: ProximityRecognition
+      user_id:
+        metadata_folder: HumanIdentification
+    composite_attributes:
+    - user
+    - activity
+    - distance
+  preprocessing:
+    input_channels: 1
+    target_subcarriers: 64
+    target_time_steps: 500
+    normalize: true
+  data_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench
+csi_encoder:
+  name: resnet18_1d
+  pretrained: false
+text_encoder:
+  name: clip_vit_b32
+  frozen: true
+projection:
+  dim: 512
+  hidden_dim: 1024
+  num_layers: 2
+training:
+  batch_size: 128
+  learning_rate: 1e-3
+  weight_decay: 1.0e-05
+  max_epochs: 200
+  warmup_epochs: 5
+  scheduler: cosine
+  early_stopping_patience: 15
+  grad_clip: 1.0
+  num_workers: 4
+  prefetch_factor: 2
+  persistent_workers: true
+  seed: 42
+  preload: false
+  amp: true
+  amp_dtype: bfloat16
+  accumulation_steps: 1
+text_generation:
+  num_paraphrases: 5
+  use_llm: false
+  text_level: level1
+logging:
+  use_wandb: false
+  project_name: csi-text-alignment
+  log_every_n_steps: 50
+  checkpoint_dir: /home/sagemaker-user/Multimodal_CSI_Text/Model/checkpoints
+evaluation:
+  zero_shot: true
+  ambient_qa: true
+  cross_task: false
+  cross_dataset: false
+s3:
+  enabled: true
+  bucket: rnd-sagemaker
+  prefix: Multimodal_CSI_Text
+  sync_checkpoints: true
+  sync_evaluation: true
+  sync_dataset: true
+method_config:
+  name: clip_infonce
+  family: contrastive
+  loss:
+    type: infonce
+    temperature: 0.07
+    symmetric: true
+task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/xrf55/action_recognition
+registry_path: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/xrf55/action_recognition/pair_registry.json
+text_embeddings_path: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/xrf55/action_recognition/text_embeddings_clip_vit_b32.h5
+global_data_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset
