@@ -10,17 +10,17 @@ text descriptions.
 
 Usage:
     # Step 1: Generate the class split (use --registry_path for correct IDs)
-    python scripts/run_held_out_classes.py --stage split \
+    python scripts/paper_experiments/run_held_out_classes.py --stage split \
         --signfi_root data/processed/signfi/sign_recognition \
         --registry_path data/processed/signfi/sign_recognition/pair_registry.json
 
     # Step 2: Train on 200-class subset (on SageMaker)
-    python scripts/run_held_out_classes.py --stage train \
+    python scripts/paper_experiments/run_held_out_classes.py --stage train \
         --signfi_root /data/Dataset/signfi/sign_recognition \
         --checkpoint_dir /model/checkpoints/held_out
 
     # Step 3: Evaluate on held-out 76 classes
-    python scripts/run_held_out_classes.py --stage evaluate \
+    python scripts/paper_experiments/run_held_out_classes.py --stage evaluate \
         --signfi_root /data/Dataset/signfi/sign_recognition \
         --checkpoint /model/checkpoints/held_out/best.pt \
         --output_dir paper_results/held_out_classes_fixed \

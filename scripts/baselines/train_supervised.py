@@ -4,13 +4,13 @@ Reuses the existing CSITextDataset for data loading and ResNet18_1D as the
 backbone, adding a linear classification head trained with cross-entropy.
 
 Usage:
-    python -m scripts.train_supervised \
+    python -m scripts.baselines.train_supervised \
         --task_root /path/to/xrf55/action_recognition \
         --num_classes 55 \
         --h5_key auto \
         --output_dir results/supervised/xrf55
 
-    python -m scripts.train_supervised \
+    python -m scripts.baselines.train_supervised \
         --task_root /path/to/signfi/sign_recognition \
         --num_classes 276 \
         --h5_key amplitude \

@@ -9,13 +9,13 @@ files, registries, or checkpoints are modified.
 
 Usage (on SageMaker — config is read from the checkpoint)
 ---------------------------------------------------------
-PYTHONPATH=$(pwd) python scripts/run_open_vocab_eval.py \\
+PYTHONPATH=$(pwd) python scripts/paper_experiments/run_open_vocab_eval.py \\
     --checkpoint /home/sagemaker-user/Multimodal_CSI_Text/Model/checkpoints/csibench-har-clip_infonce/best.pt \\
     --data_root /home/sagemaker-user/Multimodal_CSI_Text/Dataset
 
 Usage (local — with explicit config file)
 -----------------------------------------
-PYTHONPATH=$(pwd) python scripts/run_open_vocab_eval.py \\
+PYTHONPATH=$(pwd) python scripts/paper_experiments/run_open_vocab_eval.py \\
     --checkpoint /local/best.pt \\
     --config paper_results/raw/csibench/har/clip_infonce_resnet18_1d/config.yaml \\
     --data_root /local/Dataset

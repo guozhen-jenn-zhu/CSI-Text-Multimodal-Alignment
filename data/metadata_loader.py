@@ -77,7 +77,9 @@ class MetadataLoader:
 
         logger.info(
             "MetadataLoader: task_root=%s  samples=%d  h5_key=%s",
-            self.task_root, len(self._index), self.h5_key,
+            self.task_root,
+            len(self._index),
+            self.h5_key,
         )
 
     def _build_index(self) -> None:
@@ -129,31 +131,44 @@ class MetadataLoader:
         return _resolve_xrf55_key(Path(file_path).name)
 
     def _resolve_file_path(self, relative_path: str) -> Path:
-        """Resolve a relative file_path from the CSV to an absolute path.
+        """Resolve a CSV ``file_path`` value to an absolute filesystem path.
 
-        Tries ``task_root / rel`` first.  If not found, scans immediate
-        subdirectories of *task_root* (e.g. ``sub_Human/``) as a fallback
-        — CSI-Bench standalone tasks store H5s in a subdirectory that may
-        not be part of the CSV's ``file_path`` column.
+        Different dataset layouts use different conventions for the
+        ``file_path`` column:
+
+        - **Standalone tasks** (e.g. ``csibench/fall_detection``,
+          ``xrf55/action_recognition``) store paths like
+          ``./sub_Human/...`` — relative to *task_root*.
+        - **Multitask sub-tasks** (e.g. ``csibench/multitask/har``) store
+          paths like ``../../sub_Human/...`` — relative to the CSV's
+          parent directory (``<task_root>/metadata/``); the leading
+          ``../../`` walks up to the shared multitask root where
+          ``sub_Human/`` actually lives.
+
+        The first time this method is called we probe both base
+        directories (and a final ``task_root`` subdirectory scan as a
+        last-resort fallback) and cache whichever yields an existing
+        file. ``Path.resolve()`` is used so ``..`` segments are followed
+        correctly — we deliberately do **not** strip leading ``./`` or
+        ``../`` from the raw path.
         """
-        rel = relative_path.lstrip("./")
-        direct = self.task_root / rel
-        if direct.is_file():
-            return direct
+        rel = relative_path
 
-        if not hasattr(self, "_h5_subdir"):
-            self._h5_subdir: str | None = None
-            for child in self.task_root.iterdir():
-                if child.is_dir() and child.name not in ("metadata", "splits"):
-                    candidate = child / rel
-                    if candidate.is_file():
-                        self._h5_subdir = child.name
-                        break
+        if not hasattr(self, "_resolved_base"):
+            self._resolved_base: Path | None = None
+            for base in (self.task_root, self._csv_path.parent):
+                if (base / rel).resolve().is_file():
+                    self._resolved_base = base
+                    break
+            if self._resolved_base is None:
+                for child in self.task_root.iterdir():
+                    if child.is_dir() and child.name not in ("metadata", "splits"):
+                        if (child / rel).resolve().is_file():
+                            self._resolved_base = child
+                            break
 
-        if self._h5_subdir is not None:
-            return self.task_root / self._h5_subdir / rel
-
-        return direct
+        base = self._resolved_base if self._resolved_base is not None else self.task_root
+        return (base / rel).resolve()
 
     def file_exists(self, sample_id: str) -> bool:
         """Check whether the H5 file for *sample_id* exists on disk."""
@@ -172,7 +187,9 @@ class MetadataLoader:
         if n_dropped:
             logger.warning(
                 "Dropped %d / %d samples with missing H5 files in %s",
-                n_dropped, len(sample_ids), self.task_root,
+                n_dropped,
+                len(sample_ids),
+                self.task_root,
             )
         return valid
 
@@ -236,6 +253,7 @@ class MetadataLoader:
         iterator = sample_ids
         if show_progress:
             from tqdm import tqdm
+
             iterator = tqdm(sample_ids, desc="Loading samples")
 
         samples = []

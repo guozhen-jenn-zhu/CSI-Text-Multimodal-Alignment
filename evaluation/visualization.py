@@ -161,8 +161,7 @@ class LinearProbe:
             Dict with ``accuracy``, ``weighted_f1``, ``per_class_f1``.
         """
         clf = LogisticRegression(
-            max_iter=self.max_iter, C=self.C,
-            solver=self.solver, multi_class="multinomial",
+            max_iter=self.max_iter, C=self.C, solver=self.solver,
         )
         clf.fit(train_embeddings, train_labels)
         preds = clf.predict(test_embeddings)

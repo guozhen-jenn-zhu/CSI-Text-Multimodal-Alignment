@@ -11,6 +11,7 @@ import argparse
 import logging
 import os
 import random
+import shutil
 import time
 from collections import defaultdict
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -560,7 +561,17 @@ class MultitaskTrainer:
             best_link = self.checkpoint_dir / "best.pt"
             if best_link.is_symlink() or best_link.exists():
                 best_link.unlink()
-            best_link.symlink_to(filename)
+            try:
+                best_link.symlink_to(filename)
+            except (OSError, NotImplementedError) as exc:
+                # Windows requires SeCreateSymbolicLinkPrivilege (admin or
+                # Developer Mode). Fall back to a plain copy so 'best.pt'
+                # always points to the latest best checkpoint.
+                logger.debug(
+                    "symlink to %s failed (%s); falling back to copy",
+                    filename, exc,
+                )
+                shutil.copy2(path, best_link)
 
             if self.s3_syncer is not None and self._s3_executor is not None:
                 upload_path = str(path)

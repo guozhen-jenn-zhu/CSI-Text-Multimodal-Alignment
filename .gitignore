@@ -1,0 +1,64 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Distribution / packaging ---
+build/
+dist/
+*.egg-info/
+*.egg
+
+# --- Data and run artifacts (do NOT commit) ---
+data/Dataset/
+data/processed/
+data/generated_texts/
+runs/
+checkpoints/
+results/
+paper_results/raw/
+wandb/
+
+# --- Common large model / data formats (safety net) ---
+*.h5
+*.hdf5
+*.pt
+*.pth
+*.ckpt
+*.npy
+*.npz
+*.pkl
+
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Stray scratch directories ---
+~/
+~$*
+
+# --- Logs ---
+*.log
+logs/

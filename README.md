@@ -419,12 +419,16 @@ CSI-Text-Multimodal-Alignment/
 ├── utils/
 │   └── s3_sync.py           # S3 upload/download utilities
 ├── scripts/
-│   ├── launch_ddp.py        # Multi-GPU DDP launcher
-│   ├── run_benchmark.py     # Full benchmark sweep
-│   ├── run_ablations.py     # Ablation studies
-│   ├── generate_all_texts.py  # Text pair registry generation
+│   ├── launch_ddp.py                  # Multi-GPU DDP launcher
+│   ├── run_benchmark.py               # Full benchmark sweep
+│   ├── run_ablations.py               # Ablation studies
+│   ├── run_evaluate.py                # Evaluation protocol runner
+│   ├── generate_all_texts.py          # Text pair registry generation
+│   ├── generate_text_embeddings.py    # Text embedding pre-compute
 │   ├── preprocess_to_consolidated.py  # H5 consolidation for fast I/O
-│   └── run_evaluate.py      # Evaluation protocol runner
+│   ├── pipelines/                     # End-to-end orchestrators
+│   ├── baselines/                     # Supervised baselines
+│   └── paper_experiments/             # Paper-reproducibility extras
 ├── datasheet.md             # Datasheet for Datasets (Gebru et al.)
 ├── croissant.json           # Croissant metadata (NeurIPS artifact)
 ├── requirements.txt

@@ -12,25 +12,25 @@
 #
 # Usage:
 #   # Train HAR task (default)
-#   bash scripts/train_sagemaker.sh
+#   bash scripts/pipelines/train_sagemaker.sh
 #
 #   # Train a specific task
-#   TASK=fall_detection bash scripts/train_sagemaker.sh
+#   TASK=fall_detection bash scripts/pipelines/train_sagemaker.sh
 #
 #   # Train all CSI-Bench tasks sequentially
-#   TASK=all bash scripts/train_sagemaker.sh
+#   TASK=all bash scripts/pipelines/train_sagemaker.sh
 #
 #   # Train specific CSI-Bench tasks (comma-separated)
-#   TASK=har,fall_detection,proximity bash scripts/train_sagemaker.sh
+#   TASK=har,fall_detection,proximity bash scripts/pipelines/train_sagemaker.sh
 #
 #   # Train SignFI
-#   DATASET=signfi TASK=sign_recognition bash scripts/train_sagemaker.sh
+#   DATASET=signfi TASK=sign_recognition bash scripts/pipelines/train_sagemaker.sh
 #
 #   # Train XRF55
-#   DATASET=xrf55 TASK=action_recognition bash scripts/train_sagemaker.sh
+#   DATASET=xrf55 TASK=action_recognition bash scripts/pipelines/train_sagemaker.sh
 #
 #   # Customize method and encoder
-#   TASK=har METHOD=siglip ENCODER=patchtst bash scripts/train_sagemaker.sh
+#   TASK=har METHOD=siglip ENCODER=patchtst bash scripts/pipelines/train_sagemaker.sh
 
 set -euo pipefail
 

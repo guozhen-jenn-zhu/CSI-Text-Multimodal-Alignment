@@ -1,0 +1,27 @@
+# Force LF line endings for shell scripts and Python regardless of
+# the user's core.autocrlf setting. Bash refuses to run scripts with
+# CRLF (set -euo pipefail\r => "invalid option name").
+*.sh         text eol=lf
+*.bash       text eol=lf
+*.py         text eol=lf
+*.yaml       text eol=lf
+*.yml        text eol=lf
+*.json       text eol=lf
+*.md         text eol=lf
+
+# Allow PowerShell / batch to keep CRLF on Windows
+*.ps1        text eol=crlf
+*.bat        text eol=crlf
+*.cmd        text eol=crlf
+
+# Treat common binary blobs as binary
+*.h5         binary
+*.hdf5       binary
+*.pt         binary
+*.pth        binary
+*.npy        binary
+*.npz        binary
+*.png        binary
+*.jpg        binary
+*.jpeg       binary
+*.pdf        binary

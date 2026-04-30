@@ -3,23 +3,24 @@
 # Train supervised ResNet-18 baselines for all tasks.
 #
 # Usage (SageMaker):
-#   bash scripts/train_supervised_baselines.sh
+#   bash scripts/baselines/train_supervised_baselines.sh
 #
 # Usage (custom paths):
-#   DATA_ROOT=/path/to/data RESULTS_DIR=/path/to/output bash scripts/train_supervised_baselines.sh
+#   DATA_ROOT=/path/to/data RESULTS_DIR=/path/to/output bash scripts/baselines/train_supervised_baselines.sh
 #
 # To train only specific dataset(s):
-#   DATASET=xrf55 bash scripts/train_supervised_baselines.sh
-#   DATASET=signfi bash scripts/train_supervised_baselines.sh
-#   DATASET=csibench bash scripts/train_supervised_baselines.sh
-#   DATASET=csibench_standalone bash scripts/train_supervised_baselines.sh  # fall_detection + motion_source only
+#   DATASET=xrf55 bash scripts/baselines/train_supervised_baselines.sh
+#   DATASET=signfi bash scripts/baselines/train_supervised_baselines.sh
+#   DATASET=csibench bash scripts/baselines/train_supervised_baselines.sh
+#   DATASET=csibench_standalone bash scripts/baselines/train_supervised_baselines.sh  # fall_detection + motion_source only
 
 set -euo pipefail
 
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# script lives in scripts/baselines/, so REPO_ROOT is two levels up.
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DATA_ROOT="${DATA_ROOT:-/home/sagemaker-user/Multimodal_CSI_Text/Dataset}"
 RESULTS_DIR="${RESULTS_DIR:-${REPO_ROOT}/paper_results/supervised_baselines}"
 DATASET="${DATASET:-all}"    # "all", "xrf55", "signfi", or "csibench"
@@ -65,7 +66,7 @@ run_supervised() {
     log "  task_root:  ${task_root}"
     log "  output_dir: ${output_dir}"
 
-    python -m scripts.train_supervised \
+    python -m scripts.baselines.train_supervised \
         --task_root "$task_root" \
         --num_classes "$num_classes" \
         --h5_key "$h5_key" \

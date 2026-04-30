@@ -11,13 +11,13 @@
 #
 # Usage:
 #   # Evaluate only (recommended -- uses existing checkpoint):
-#   bash scripts/run_held_out_signfi.sh
+#   bash scripts/paper_experiments/run_held_out_signfi.sh
 #
 #   # Full pipeline (split + train + evaluate):
-#   bash scripts/run_held_out_signfi.sh --retrain
+#   bash scripts/paper_experiments/run_held_out_signfi.sh --retrain
 #
 #   # Retrain with fewer GPUs (more gradient steps per epoch):
-#   bash scripts/run_held_out_signfi.sh --retrain --gpus=2
+#   bash scripts/paper_experiments/run_held_out_signfi.sh --retrain --gpus=2
 
 set -euo pipefail
 
@@ -76,7 +76,7 @@ if [ "${RETRAIN}" = true ]; then
     echo ""
     echo "--- Step 1: Generating class split ---"
     SPLIT_PATH="${OUTPUT_DIR}/held_out_class_split.json"
-    python3 -m scripts.run_held_out_classes \
+    python3 -m scripts.paper_experiments.run_held_out_classes \
         --stage split \
         --signfi_root "${SIGNFI_ROOT}" \
         --output_dir "${OUTPUT_DIR}" \
@@ -164,7 +164,7 @@ if [ ! -f "${CKPT_PATH}" ]; then
     exit 1
 fi
 
-python3 -m scripts.run_held_out_classes \
+python3 -m scripts.paper_experiments.run_held_out_classes \
     --stage evaluate \
     --signfi_root "${SIGNFI_ROOT}" \
     --checkpoint "${CKPT_PATH}" \

@@ -95,7 +95,6 @@ class FewShotLinearProbe:
                     max_iter=self.max_iter,
                     C=self.C,
                     solver=self.solver,
-                    multi_class="multinomial",
                 )
                 clf.fit(fs_emb, fs_lbl)
                 preds = clf.predict(test_embeddings)

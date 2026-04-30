@@ -15,31 +15,31 @@
 #
 # Usage:
 #   # Run all experiments sequentially
-#   bash scripts/run_neurips_experiments.sh
+#   bash scripts/pipelines/run_neurips_experiments.sh
 #
 #   # Run a specific priority level
-#   PRIORITY=0 bash scripts/run_neurips_experiments.sh
+#   PRIORITY=0 bash scripts/pipelines/run_neurips_experiments.sh
 #
 #   # Run priorities 0 through 2
-#   PRIORITY=0,1,2 bash scripts/run_neurips_experiments.sh
+#   PRIORITY=0,1,2 bash scripts/pipelines/run_neurips_experiments.sh
 #
 #   # Dry run (print commands without executing)
-#   DRY_RUN=1 bash scripts/run_neurips_experiments.sh
+#   DRY_RUN=1 bash scripts/pipelines/run_neurips_experiments.sh
 #
 #   # Override the best encoder (skip Priority 0)
-#   BEST_ENCODER=patchtst PRIORITY=1 bash scripts/run_neurips_experiments.sh
+#   BEST_ENCODER=patchtst PRIORITY=1 bash scripts/pipelines/run_neurips_experiments.sh
 #
 #   # Force re-run of all experiments (disable skip logic)
-#   SKIP_EXISTING=0 bash scripts/run_neurips_experiments.sh
+#   SKIP_EXISTING=0 bash scripts/pipelines/run_neurips_experiments.sh
 
 set -euo pipefail
 
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-REPO_ROOT="${REPO_ROOT:-/home/sagemaker-user/CSI-Text-Multimodal-Alignment}"
-DATA_ROOT="${DATA_ROOT:-/home/sagemaker-user/Multimodal_CSI_Text/Dataset}"
-MODEL_ROOT="${MODEL_ROOT:-/home/sagemaker-user/Multimodal_CSI_Text/Model}"
+REPO_ROOT="${REPO_ROOT:-/D:/CSI-Text-Multimodal-Alignment/}"
+DATA_ROOT="${DATA_ROOT:-/D:/Multimodal_CSI_Text/Multimodal_CSI_Text/Dataset}"
+MODEL_ROOT="${MODEL_ROOT:-/D:/Multimodal_CSI_Text/Multimodal_CSI_Text/Model}"
 DRY_RUN="${DRY_RUN:-0}"
 PRIORITY="${PRIORITY:-all}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
@@ -133,7 +133,7 @@ train_single() {
         TASK="$task" \
         METHOD="$method" \
         ENCODER="$encoder" \
-        bash "${REPO_ROOT}/scripts/train_sagemaker.sh"
+        bash "${REPO_ROOT}/scripts/pipelines/train_sagemaker.sh"
 }
 
 evaluate_single() {
@@ -261,7 +261,7 @@ priority_1a() {
     log "Generating benchmark summary..."
     if [[ "$DRY_RUN" != "1" ]]; then
         cd "$REPO_ROOT"
-        python3 "${REPO_ROOT}/scripts/aggregate_neurips_results.py" \
+        python3 "${REPO_ROOT}/scripts/paper_experiments/aggregate_neurips_results.py" \
             --results_root "${MODEL_ROOT}/results" \
             --output_dir "${MODEL_ROOT}/results/_paper_tables" \
             --stage main_benchmark
@@ -286,7 +286,7 @@ priority_1b() {
             TASK=multitask_csibench \
             METHOD="$best_method" \
             ENCODER="$encoder" \
-            bash "${REPO_ROOT}/scripts/train_sagemaker.sh"
+            bash "${REPO_ROOT}/scripts/pipelines/train_sagemaker.sh"
     fi
 
     if checkpoint_exists all multitask "$best_method"; then
@@ -297,7 +297,7 @@ priority_1b() {
             TASK=multitask_all \
             METHOD="$best_method" \
             ENCODER="$encoder" \
-            bash "${REPO_ROOT}/scripts/train_sagemaker.sh"
+            bash "${REPO_ROOT}/scripts/pipelines/train_sagemaker.sh"
     fi
 }
 
@@ -324,7 +324,7 @@ priority_2a() {
 
     if [[ "$DRY_RUN" != "1" ]]; then
         cd "$REPO_ROOT"
-        python3 "${REPO_ROOT}/scripts/aggregate_neurips_results.py" \
+        python3 "${REPO_ROOT}/scripts/paper_experiments/aggregate_neurips_results.py" \
             --results_root "${MODEL_ROOT}/results" \
             --output_dir "${MODEL_ROOT}/results/_paper_tables" \
             --stage cross_dataset
@@ -374,7 +374,7 @@ priority_2b() {
 
     if [[ "$DRY_RUN" != "1" ]]; then
         cd "$REPO_ROOT"
-        python3 "${REPO_ROOT}/scripts/aggregate_neurips_results.py" \
+        python3 "${REPO_ROOT}/scripts/paper_experiments/aggregate_neurips_results.py" \
             --results_root "${MODEL_ROOT}/results" \
             --output_dir "${MODEL_ROOT}/results/_paper_tables" \
             --stage cross_task
@@ -481,7 +481,7 @@ priority_5() {
     run_cmd env \
         DATASET=csibench TASK=har METHOD=clip_infonce ENCODER="$encoder" \
         TEXT_ENCODER=sentence_transformer \
-        bash "${REPO_ROOT}/scripts/train_sagemaker.sh"
+        bash "${REPO_ROOT}/scripts/pipelines/train_sagemaker.sh"
 
     log "5C: Embedding dimension ablation"
     for dim in 128 256 512; do
@@ -551,7 +551,7 @@ priority_7() {
     log "Generating final paper tables and figures..."
     if [[ "$DRY_RUN" != "1" ]]; then
         cd "$REPO_ROOT"
-        python3 "${REPO_ROOT}/scripts/aggregate_neurips_results.py" \
+        python3 "${REPO_ROOT}/scripts/paper_experiments/aggregate_neurips_results.py" \
             --results_root "${MODEL_ROOT}/results" \
             --output_dir "${MODEL_ROOT}/results/_paper_tables" \
             --stage all

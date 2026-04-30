@@ -6,6 +6,7 @@ import argparse
 import logging
 import os
 import random
+import shutil
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
@@ -329,23 +330,34 @@ class Trainer:
     def _resolve_task_root(self) -> str:
         """Resolve the task_root path from dataset + task config.
 
-        Checks standalone tasks first, then multitask tasks.  Multitask
-        tasks (e.g. har, proximity, user_id in CSI-Bench) live under
-        ``data_root/multitask/<task_name>``.
+        Multitask tasks (e.g. har, proximity, user_id in CSI-Bench) always
+        live under ``data_root/multitask/<task_name>``.
+
+        Standalone tasks (e.g. fall_detection, motion_source) use the
+        dataset YAML's ``tasks[<name>].folder`` mapping (e.g.
+        ``FallDetection``) only when the user is using the default
+        SageMaker-style data root.  When ``dataset_config.data_root`` has
+        been explicitly overridden (typically a local checkout), the task
+        name is used directly as the folder name -- this matches the
+        behaviour of ``scripts/run_evaluate.py:_resolve_task_root`` and
+        the on-disk layout used by ``scripts/pipelines/train_local.sh``.
         """
         ds_cfg = self.config.get("dataset_config", {})
-        data_root = ds_cfg.get("data_root", "/data/fm_downstream")
+        default_data_root = "/data/fm_downstream"
+        data_root = ds_cfg.get("data_root", default_data_root)
         task_name = self.config.get("task", "har")
-
-        tasks = ds_cfg.get("tasks", {})
-        if isinstance(tasks, dict) and task_name in tasks:
-            folder = tasks[task_name].get("folder", task_name)
-            return str(Path(data_root) / folder)
+        has_custom_data_root = data_root != default_data_root
 
         mt_cfg = ds_cfg.get("multitask", {})
         mt_tasks = mt_cfg.get("tasks", {})
         if isinstance(mt_tasks, dict) and task_name in mt_tasks:
             return str(Path(data_root) / "multitask" / task_name)
+
+        if not has_custom_data_root:
+            tasks = ds_cfg.get("tasks", {})
+            if isinstance(tasks, dict) and task_name in tasks:
+                folder = tasks[task_name].get("folder", task_name)
+                return str(Path(data_root) / folder)
 
         return str(Path(data_root) / task_name)
 
@@ -378,9 +390,11 @@ class Trainer:
 
         if not text_embeddings_path:
             enc_name = self.config.get("text_encoder", {}).get("name", "clip_vit_b32")
-            candidate = Path(task_root) / f"text_embeddings_{enc_name}.h5"
-            if candidate.is_file():
-                text_embeddings_path = str(candidate)
+            for fname in (f"text_embeddings_{enc_name}.h5", "text_embeddings.h5"):
+                candidate = Path(task_root) / fname
+                if candidate.is_file():
+                    text_embeddings_path = str(candidate)
+                    break
 
         held_out_cfg = self.config.get("held_out_classes", {})
         class_filter = None
@@ -668,7 +682,17 @@ class Trainer:
             best_link = self.checkpoint_dir / "best.pt"
             if best_link.is_symlink() or best_link.exists():
                 best_link.unlink()
-            best_link.symlink_to(filename)
+            try:
+                best_link.symlink_to(filename)
+            except (OSError, NotImplementedError) as exc:
+                # Windows requires SeCreateSymbolicLinkPrivilege (admin or
+                # Developer Mode). Fall back to a plain copy so 'best.pt'
+                # always points to the latest best checkpoint.
+                logger.debug(
+                    "symlink to %s failed (%s); falling back to copy",
+                    filename, exc,
+                )
+                shutil.copy2(path, best_link)
 
             if self.s3_syncer is not None and self._s3_executor is not None:
                 upload_path = str(path)

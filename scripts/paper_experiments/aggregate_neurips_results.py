@@ -1,7 +1,7 @@
 """Aggregate experiment results into paper-ready tables and figures.
 
 Usage:
-    python scripts/aggregate_neurips_results.py \
+    python scripts/paper_experiments/aggregate_neurips_results.py \
         --results_root /path/to/results \
         --output_dir /path/to/paper_tables \
         --stage all

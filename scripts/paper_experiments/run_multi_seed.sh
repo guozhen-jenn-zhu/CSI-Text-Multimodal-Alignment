@@ -10,11 +10,11 @@
 # Total new training runs: 6 methods x 7 tasks x 2 new seeds = 84
 #
 # Usage:
-#   bash scripts/run_multi_seed.sh
+#   bash scripts/paper_experiments/run_multi_seed.sh
 #
 # Environment:
 #   Designed for SageMaker g5 instances.
-#   Uses the same training pipeline as train_sagemaker.sh.
+#   Uses the same training pipeline as scripts/pipelines/train_sagemaker.sh.
 
 set -euo pipefail
 
