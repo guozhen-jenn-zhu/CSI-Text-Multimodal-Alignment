@@ -2,40 +2,52 @@ dataset: all
 task: multitask
 method: clip_infonce
 
-multitask:
-  sampling: proportional
-  tasks:
-    # -- CSI-Bench --
-    - task_name: har
-      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench/multitask/har
-      h5_key: CSI_amps
-    - task_name: proximity
-      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench/multitask/proximity
-      h5_key: CSI_amps
-    - task_name: user_id
-      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench/multitask/user_id
-      h5_key: CSI_amps
-    - task_name: fall_detection
-      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench/fall_detection
-      h5_key: CSI_amps
-    - task_name: motion_source
-      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench/motion_source
-      h5_key: CSI_amps
-    # -- SignFI --
-    - task_name: sign_recognition
-      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/signfi/sign_recognition
-      h5_key: amplitude
-    # -- XRF55 --
-    - task_name: action_recognition
-      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/xrf55/action_recognition
-      h5_key: auto
+# Portable AM-FM multitask config: joint training across CSI-Bench (5 tasks)
+# + SignFi + XRF55 with the AM-FM pre-trained encoder. Task roots are
+# relative to ``dataset_config.data_root`` (resolved at startup by
+# ``resolve_task_roots`` in data/multitask_dataset.py).
+#
+# Override ``dataset_config.data_root`` to retarget locally vs. cloud:
+#
+#   * Local:     dataset_config.data_root=/path/to/Dataset
+#   * SageMaker: dataset_config.data_root=/home/sagemaker-user/Multimodal_CSI_Text/Dataset
 
 dataset_config:
+  data_root: data/Dataset
   preprocessing:
     input_channels: 1
     target_subcarriers: 64
     target_time_steps: 500
     normalize: true
+
+multitask:
+  sampling: proportional
+  tasks:
+    # -- CSI-Bench (multitask layout: shared sub_Human under csibench/multitask/) --
+    - task_name: har
+      task_root: csibench/multitask/har
+      h5_key: CSI_amps
+    - task_name: proximity
+      task_root: csibench/multitask/proximity
+      h5_key: CSI_amps
+    - task_name: user_id
+      task_root: csibench/multitask/user_id
+      h5_key: CSI_amps
+    # -- CSI-Bench (standalone tasks with their own sub_* directories) --
+    - task_name: fall_detection
+      task_root: csibench/fall_detection
+      h5_key: CSI_amps
+    - task_name: motion_source
+      task_root: csibench/motion_source
+      h5_key: CSI_amps
+    # -- SignFi --
+    - task_name: sign_recognition
+      task_root: signfi/sign_recognition
+      h5_key: amplitude
+    # -- XRF55 --
+    - task_name: action_recognition
+      task_root: xrf55/action_recognition
+      h5_key: auto
 
 # ---------- AM-FM pre-trained CSI encoder ----------
 csi_encoder:
@@ -94,10 +106,10 @@ logging:
   use_wandb: false
   project_name: csi-text-alignment
   log_every_n_steps: 50
-  checkpoint_dir: /home/sagemaker-user/Multimodal_CSI_Text/Model/checkpoints
+  checkpoint_dir: runs/checkpoints
 
 s3:
-  enabled: true
+  enabled: false
   bucket: rnd-sagemaker
   prefix: Multimodal_CSI_Text
   sync_checkpoints: true

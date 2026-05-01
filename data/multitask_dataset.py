@@ -7,15 +7,58 @@ Each sample carries a ``task_id`` so per-task metrics can be computed.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset, DistributedSampler, WeightedRandomSampler
+from torch.utils.data import (
+    DataLoader,
+    Dataset,
+    DistributedSampler,
+    WeightedRandomSampler,
+)
 
 from data.dataset import CSIAugmentation, CSITextDataset
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_task_roots(config: dict) -> None:
+    """Join any *relative* ``multitask.tasks[i].task_root`` with ``data_root``.
+
+    Lets portable configs (e.g. ``configs/experiment/multitask_all.yaml``)
+    use relative ``task_root`` values like ``csibench/multitask/har`` and
+    have them resolved against ``dataset_config.data_root`` at runtime.
+
+    Absolute task_roots are left untouched, so SageMaker-style configs with
+    fully-qualified paths continue to work as-is.
+
+    Mutates ``config`` in place; safe to call multiple times.
+    """
+    data_root = config.get("dataset_config", {}).get("data_root")
+    tasks = config.get("multitask", {}).get("tasks", [])
+    if not data_root or not tasks:
+        return
+
+    dr_norm = str(data_root).replace("\\", "/").rstrip("/")
+
+    for tc in tasks:
+        original = tc.get("task_root")
+        if not original:
+            continue
+        norm = str(original).replace("\\", "/")
+        is_absolute = norm.startswith("/") or (len(norm) >= 2 and norm[1] == ":")
+        if is_absolute:
+            continue
+        new_root = dr_norm + "/" + norm.lstrip("./")
+        logger.info(
+            "Resolved task_root for '%s': %s -> %s",
+            tc.get("task_name", "?"),
+            original,
+            new_root,
+        )
+        tc["task_root"] = new_root
 
 
 class MultitaskCSITextDataset(Dataset):
@@ -80,7 +123,8 @@ class MultitaskCSITextDataset(Dataset):
         self.total_samples = offset
         logger.info(
             "MultitaskCSITextDataset: split=%s tasks=%s total=%d",
-            split, {n: len(d) for n, d in zip(self.task_names, self.sub_datasets)},
+            split,
+            {n: len(d) for n, d in zip(self.task_names, self.sub_datasets)},
             self.total_samples,
         )
 
@@ -202,9 +246,13 @@ def build_multitask_dataloaders(
         shuffle = split == "train"
 
         if distributed:
-            sampler = DistributedSampler(ds, num_replicas=world_size, rank=rank, shuffle=shuffle)
+            sampler = DistributedSampler(
+                ds, num_replicas=world_size, rank=rank, shuffle=shuffle
+            )
             shuffle = False
-        elif split == "train" and sampling == "proportional" and len(ds.sub_datasets) > 1:
+        elif (
+            split == "train" and sampling == "proportional" and len(ds.sub_datasets) > 1
+        ):
             weights = ds.build_sample_weights()
             sampler = WeightedRandomSampler(
                 weights=weights.tolist(),

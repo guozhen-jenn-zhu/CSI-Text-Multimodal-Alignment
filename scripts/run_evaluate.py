@@ -15,6 +15,7 @@ import yaml
 from torch.utils.data import DataLoader
 
 from data import build_dataloaders
+from data.multitask_dataset import resolve_task_roots
 from data.pair_registry import PairRegistry
 from data.text_generation.templates.task_templates import get_task_templates
 from evaluation import (
@@ -1386,6 +1387,8 @@ def main() -> None:
 
     if args.data_root:
         config["global_data_root"] = args.data_root
+
+    resolve_task_roots(config)
 
     model, text_encoder, text_projection, csi_projection = build_model_from_config(config, device)
     state = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt

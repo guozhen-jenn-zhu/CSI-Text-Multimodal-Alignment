@@ -60,7 +60,9 @@ class CSIAugmentation:
             csi[:, start : start + mask_len, :] = 0.0
 
         if self._rng.random() < self.p and self.noise_std > 0:
-            csi = csi + self._rng.normal(0, self.noise_std, size=csi.shape).astype(csi.dtype)
+            csi = csi + self._rng.normal(0, self.noise_std, size=csi.shape).astype(
+                csi.dtype
+            )
 
         if self._rng.random() < self.p:
             lo, hi = self.scale_range
@@ -115,9 +117,7 @@ class CSITextDataset(Dataset):
         raw_ids = self.loader.get_split_ids(split)
         self.sample_ids = self.loader.filter_valid_ids(raw_ids)
 
-        all_labels = np.array(
-            [self.loader.get_label(sid) for sid in self.sample_ids]
-        )
+        all_labels = np.array([self.loader.get_label(sid) for sid in self.sample_ids])
 
         self.labels = all_labels
         self._build_label_map()
@@ -129,11 +129,22 @@ class CSITextDataset(Dataset):
             self.int_labels = self.int_labels[mask]
             logger.info(
                 "Class filter applied: kept %d/%d samples (%d classes)",
-                len(self.sample_ids), len(mask), len(class_filter),
+                len(self.sample_ids),
+                len(mask),
+                len(class_filter),
             )
 
         self._id_to_idx = {sid: i for i, sid in enumerate(self.sample_ids)}
         self.num_samples = len(self.sample_ids)
+
+        # Fall back to conventional locations under ``task_root`` so portable
+        # multitask configs can omit per-task ``registry_path`` /
+        # ``text_embeddings_path`` and still pick up the artifacts produced by
+        # the standard preprocessing scripts.
+        if registry_path is None:
+            candidate = self.task_root / "pair_registry.json"
+            if candidate.is_file():
+                registry_path = str(candidate)
 
         self.registry: Optional[PairRegistry] = None
         if registry_path is not None and Path(registry_path).is_file():
@@ -142,6 +153,11 @@ class CSITextDataset(Dataset):
         self._preloaded_data: Optional[np.ndarray] = None
         if preload:
             self._preload_all()
+
+        if text_embeddings_path is None:
+            candidate = self.task_root / "text_embeddings.h5"
+            if candidate.is_file():
+                text_embeddings_path = str(candidate)
 
         self.text_embeddings: Optional[dict[str, np.ndarray]] = None
         self.embedding_dim: Optional[int] = None
@@ -153,8 +169,13 @@ class CSITextDataset(Dataset):
         logger.info(
             "CSITextDataset: task_root=%s split=%s samples=%d preload=%s "
             "target=[%d,%d] embeddings=%s",
-            task_root, split, self.num_samples, preload,
-            target_subcarriers, target_time_steps, self.embedding_dim,
+            task_root,
+            split,
+            self.num_samples,
+            preload,
+            target_subcarriers,
+            target_time_steps,
+            self.embedding_dim,
         )
 
     def _build_label_map(self) -> None:
@@ -186,7 +207,9 @@ class CSITextDataset(Dataset):
             self.num_classes = int(lm.get("num_classes", len(label_to_idx)))
             logger.debug(
                 "Label map from %s: %d classes, %d present in split",
-                lm_path, self.num_classes, len(raw_set),
+                lm_path,
+                self.num_classes,
+                len(raw_set),
             )
         else:
             unique_labels = sorted(set(self.labels.tolist()))
@@ -383,7 +406,8 @@ def build_dataloaders(
         transform = train_augmentation if split == "train" else None
         split_class_filter = class_filter if split in ("train", "val") else None
         ds = CSITextDataset(
-            split=split, transform=transform,
+            split=split,
+            transform=transform,
             class_filter=split_class_filter,
             **shared_kwargs,
         )

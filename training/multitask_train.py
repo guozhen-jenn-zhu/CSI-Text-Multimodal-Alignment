@@ -25,11 +25,16 @@ import yaml
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 
-from data.multitask_dataset import build_multitask_dataloaders
+from data.multitask_dataset import build_multitask_dataloaders, resolve_task_roots
 from models.alignment import build_alignment_model
 from models.encoders import ProjectionHead, build_csi_encoder, build_text_encoder
 from training.scheduler import build_scheduler
-from training.train import _apply_overrides, _set_seed, _setup_distributed, _cleanup_distributed
+from training.train import (
+    _apply_overrides,
+    _set_seed,
+    _setup_distributed,
+    _cleanup_distributed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +55,8 @@ def _merge_multitask_configs(experiment: dict) -> dict:
             experiment["dataset_config"] = yaml.safe_load(f)
 
     return experiment
+
+
 
 
 class MultitaskTrainer:
@@ -77,7 +84,9 @@ class MultitaskTrainer:
         training_cfg = config["training"]
         _set_seed(training_cfg.get("seed", 42) + rank)
 
-        self.device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(
+            f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu"
+        )
         self.max_epochs = int(training_cfg["max_epochs"])
         self.patience = int(training_cfg.get("early_stopping_patience", 15))
         self.grad_clip = float(training_cfg.get("grad_clip", 1.0))
@@ -90,7 +99,9 @@ class MultitaskTrainer:
             self.amp_dtype = torch.bfloat16
         else:
             self.amp_dtype = torch.float16
-        self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp and self.amp_dtype == torch.float16)
+        self.scaler = torch.amp.GradScaler(
+            "cuda", enabled=self.use_amp and self.amp_dtype == torch.float16
+        )
 
         if self.is_main:
             self._setup_logging()
@@ -108,6 +119,7 @@ class MultitaskTrainer:
         if s3_cfg.get("enabled", False) and self.is_main:
             try:
                 from utils.s3_sync import S3Syncer
+
                 self.s3_syncer = S3Syncer(
                     bucket=s3_cfg["bucket"],
                     prefix=s3_cfg.get("prefix", "Multimodal_CSI_Text"),
@@ -119,8 +131,11 @@ class MultitaskTrainer:
         if self.is_main:
             logger.info(
                 "MultitaskTrainer ready on %s | DDP=%s world_size=%d | AMP=%s dtype=%s | tasks=%s",
-                self.device, self.distributed, self.world_size,
-                self.use_amp, self.amp_dtype,
+                self.device,
+                self.distributed,
+                self.world_size,
+                self.use_amp,
+                self.amp_dtype,
                 [tc["task_name"] for tc in config["multitask"]["tasks"]],
             )
 
@@ -128,7 +143,9 @@ class MultitaskTrainer:
         log_cfg = self.config.get("logging", {})
         checkpoint_dir = Path(log_cfg.get("checkpoint_dir", "checkpoints"))
         task = self.config.get("task", "multitask")
-        self.checkpoint_dir = checkpoint_dir / f"{self.config['dataset']}-{task}-{self.config['method']}"
+        self.checkpoint_dir = (
+            checkpoint_dir / f"{self.config['dataset']}-{task}-{self.config['method']}"
+        )
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
         log_file = self.checkpoint_dir / "train.log"
@@ -143,6 +160,7 @@ class MultitaskTrainer:
         self.wandb_run = None
         if self.use_wandb:
             import wandb
+
             self.wandb_run = wandb.init(
                 project=log_cfg.get("project_name", "csi-text-alignment"),
                 config=self.config,
@@ -166,9 +184,17 @@ class MultitaskTrainer:
             "dropout": float(enc_cfg.get("dropout", 0.0)),
         }
         if enc_cfg.get("name", "resnet18_1d").lower() == "amfm":
-            for k in ("emb_dim", "encoder_heads", "encoder_layers",
-                       "encoder_ff_dim", "encoder_dropout", "c_out",
-                       "freq_out", "max_len", "in_channels"):
+            for k in (
+                "emb_dim",
+                "encoder_heads",
+                "encoder_layers",
+                "encoder_ff_dim",
+                "encoder_dropout",
+                "c_out",
+                "freq_out",
+                "max_len",
+                "in_channels",
+            ):
                 if k in enc_cfg:
                     enc_kwargs[k] = enc_cfg[k]
             if "pretrained_path" in enc_cfg:
@@ -209,7 +235,10 @@ class MultitaskTrainer:
         )
         if has_precomputed:
             import h5py
-            first_emb_path = self.config["multitask"]["tasks"][0]["text_embeddings_path"]
+
+            first_emb_path = self.config["multitask"]["tasks"][0][
+                "text_embeddings_path"
+            ]
             with h5py.File(first_emb_path, "r") as f:
                 first_key = next(iter(f.keys()))
                 text_embed_dim = int(f[first_key].shape[0])
@@ -219,7 +248,9 @@ class MultitaskTrainer:
                     text_embed_dim,
                 )
         else:
-            self.text_encoder = build_text_encoder(name=txt_cfg.get("name", "clip_vit_b32"))
+            self.text_encoder = build_text_encoder(
+                name=txt_cfg.get("name", "clip_vit_b32")
+            )
             text_embed_dim = self.text_encoder.embed_dim
 
         proj_dropout = float(proj_cfg.get("dropout", 0.0))
@@ -244,6 +275,7 @@ class MultitaskTrainer:
             )
 
         from training.train import Trainer
+
         model_kwargs = Trainer._extract_model_kwargs(method_name, loss_cfg, embed_dim)
         self.model = build_alignment_model(
             method_name=method_name,
@@ -264,9 +296,13 @@ class MultitaskTrainer:
 
         param_count = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         if self.is_main:
-            logger.info("Model: %s | trainable params: %s", method_name, f"{param_count:,}")
+            logger.info(
+                "Model: %s | trainable params: %s", method_name, f"{param_count:,}"
+            )
 
     def _build_dataloaders(self) -> None:
+        resolve_task_roots(self.config)
+
         ds_cfg = self.config.get("dataset_config", {})
         preproc = ds_cfg.get("preprocessing", {})
         training_cfg = self.config["training"]
@@ -305,10 +341,16 @@ class MultitaskTrainer:
 
         if not self._encoder_frozen and encoder_lr_scale != 1.0:
             encoder_ids = {id(p) for p in model.csi_encoder.parameters()}
-            encoder_params = [p for p in model.parameters()
-                              if p.requires_grad and id(p) in encoder_ids]
-            other_params = [p for p in model.parameters()
-                            if p.requires_grad and id(p) not in encoder_ids]
+            encoder_params = [
+                p
+                for p in model.parameters()
+                if p.requires_grad and id(p) in encoder_ids
+            ]
+            other_params = [
+                p
+                for p in model.parameters()
+                if p.requires_grad and id(p) not in encoder_ids
+            ]
             param_groups = [
                 {"params": encoder_params, "lr": base_lr * encoder_lr_scale},
                 {"params": other_params, "lr": base_lr},
@@ -316,7 +358,9 @@ class MultitaskTrainer:
             if self.is_main:
                 logger.info(
                     "Using encoder_lr_scale=%.3f  (encoder LR=%.2e, other LR=%.2e)",
-                    encoder_lr_scale, base_lr * encoder_lr_scale, base_lr,
+                    encoder_lr_scale,
+                    base_lr * encoder_lr_scale,
+                    base_lr,
                 )
         else:
             param_groups = [p for p in self.model.parameters() if p.requires_grad]
@@ -366,7 +410,9 @@ class MultitaskTrainer:
             if (step + 1) % self.accumulation_steps == 0:
                 if self.grad_clip > 0:
                     self.scaler.unscale_(self.optimizer)
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), self.grad_clip
+                    )
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
                 self.optimizer.zero_grad(set_to_none=True)
@@ -382,11 +428,19 @@ class MultitaskTrainer:
                 per_task_count[tname] += 1
 
             global_step = epoch * len(self.train_loader) + step
-            if self.is_main and self.log_every > 0 and global_step % self.log_every == 0:
+            if (
+                self.is_main
+                and self.log_every > 0
+                and global_step % self.log_every == 0
+            ):
                 lr = self.optimizer.param_groups[0]["lr"]
                 logger.info(
                     "epoch %d  step %d/%d  loss=%.4f  lr=%.2e",
-                    epoch, step, len(self.train_loader), batch_loss, lr,
+                    epoch,
+                    step,
+                    len(self.train_loader),
+                    batch_loss,
+                    lr,
                 )
 
         avg_loss = total_loss / max(num_batches, 1)
@@ -449,7 +503,9 @@ class MultitaskTrainer:
         if self.is_main:
             logger.info(
                 "Starting multitask training: %d epochs, patience %d, tasks %s",
-                self.max_epochs, self.patience, self.task_names,
+                self.max_epochs,
+                self.patience,
+                self.task_names,
             )
 
         for epoch in range(self.start_epoch, self.max_epochs):
@@ -458,7 +514,9 @@ class MultitaskTrainer:
             train_metrics = self.train_epoch(epoch)
             val_metrics = self.validate()
 
-            if not isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            if not isinstance(
+                self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau
+            ):
                 self.scheduler.step()
             else:
                 self.scheduler.step(val_metrics["val_loss"])
@@ -476,26 +534,37 @@ class MultitaskTrainer:
                 )
                 logger.info(
                     "Epoch %d/%d  train_loss=%.4f  val_loss=%.4f  [%s]  lr=%.2e  time=%.1fs",
-                    epoch + 1, self.max_epochs,
-                    train_metrics["train_loss"], val_metrics["val_loss"],
-                    per_task_str, lr, elapsed,
+                    epoch + 1,
+                    self.max_epochs,
+                    train_metrics["train_loss"],
+                    val_metrics["val_loss"],
+                    per_task_str,
+                    lr,
+                    elapsed,
                 )
 
                 all_metrics = {**train_metrics, **val_metrics, "epoch": epoch, "lr": lr}
                 if self.use_wandb and self.wandb_run is not None:
                     import wandb
+
                     wandb.log(all_metrics, step=epoch)
 
                 if improved:
                     best_metrics = all_metrics.copy()
                     self.save_checkpoint(
                         f"best_ep{epoch+1}_vl{val_metrics['val_loss']:.4f}.pt",
-                        epoch, val_metrics["val_loss"],
+                        epoch,
+                        val_metrics["val_loss"],
                     )
-                    logger.info("  -> new best val_loss=%.4f -- checkpoint saved", val_metrics["val_loss"])
+                    logger.info(
+                        "  -> new best val_loss=%.4f -- checkpoint saved",
+                        val_metrics["val_loss"],
+                    )
 
                 if (epoch + 1) % 30 == 0:
-                    self.save_checkpoint(f"epoch_{epoch + 1}.pt", epoch, val_metrics["val_loss"])
+                    self.save_checkpoint(
+                        f"epoch_{epoch + 1}.pt", epoch, val_metrics["val_loss"]
+                    )
 
             if improved:
                 self.best_val_loss = val_metrics["val_loss"]
@@ -510,7 +579,8 @@ class MultitaskTrainer:
                 if self.is_main:
                     logger.info(
                         "Early stopping at epoch %d (patience %d exhausted)",
-                        epoch + 1, self.patience,
+                        epoch + 1,
+                        self.patience,
                     )
                 break
 
@@ -521,6 +591,7 @@ class MultitaskTrainer:
 
             if self.use_wandb and self.wandb_run is not None:
                 import wandb
+
                 wandb.finish()
 
             if self._s3_executor is not None:
@@ -538,7 +609,9 @@ class MultitaskTrainer:
 
         path = self.checkpoint_dir / filename
         model_state = (
-            self.model.module.state_dict() if self.distributed else self.model.state_dict()
+            self.model.module.state_dict()
+            if self.distributed
+            else self.model.state_dict()
         )
         torch.save(
             {
@@ -569,17 +642,20 @@ class MultitaskTrainer:
                 # always points to the latest best checkpoint.
                 logger.debug(
                     "symlink to %s failed (%s); falling back to copy",
-                    filename, exc,
+                    filename,
+                    exc,
                 )
                 shutil.copy2(path, best_link)
 
             if self.s3_syncer is not None and self._s3_executor is not None:
                 upload_path = str(path)
+
                 def _bg_upload(p=upload_path):
                     try:
                         self.s3_syncer.upload_checkpoint(p, key_name="best.pt")
                     except Exception as exc:
                         logger.warning("S3 checkpoint upload failed: %s", exc)
+
                 self._s3_futures.append(self._s3_executor.submit(_bg_upload))
 
     def _flush_s3_uploads(self) -> None:
@@ -609,7 +685,9 @@ class MultitaskTrainer:
         if self.is_main:
             logger.info(
                 "Loaded checkpoint %s (epoch %d, val_loss=%.4f)",
-                path, ckpt["epoch"], ckpt["val_loss"],
+                path,
+                ckpt["epoch"],
+                ckpt["val_loss"],
             )
 
 
@@ -619,17 +697,25 @@ class MultitaskTrainer:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Multitask CSI-Text alignment training")
+    parser = argparse.ArgumentParser(
+        description="Multitask CSI-Text alignment training"
+    )
     parser.add_argument(
-        "--config", type=str, required=True,
+        "--config",
+        type=str,
+        required=True,
         help="Path to multitask experiment YAML config",
     )
     parser.add_argument(
-        "--override", nargs="*", default=[],
+        "--override",
+        nargs="*",
+        default=[],
         help="Override config values as key.subkey=value",
     )
     parser.add_argument(
-        "--resume", type=str, default=None,
+        "--resume",
+        type=str,
+        default=None,
         help="Path to checkpoint to resume training from",
     )
     args = parser.parse_args()
@@ -650,7 +736,9 @@ def main() -> None:
     if args.override:
         _apply_overrides(config, args.override)
 
-    trainer = MultitaskTrainer(config, local_rank=local_rank, rank=rank, world_size=world_size)
+    trainer = MultitaskTrainer(
+        config, local_rank=local_rank, rank=rank, world_size=world_size
+    )
 
     if args.resume:
         trainer.load_checkpoint(args.resume)

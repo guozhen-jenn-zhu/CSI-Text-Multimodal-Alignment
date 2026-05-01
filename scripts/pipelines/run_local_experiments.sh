@@ -49,6 +49,7 @@ SKIP_EXISTING="${SKIP_EXISTING:-1}"
 NUM_GPUS="${NUM_GPUS:--1}"
 BATCH_SIZE="${BATCH_SIZE:-64}"
 MAX_EPOCHS="${MAX_EPOCHS:-2}"
+TEXT_ENCODER="${TEXT_ENCODER:-clip_vit_b32}"
 
 BEST_ENCODER="${BEST_ENCODER:-}"
 ENCODER_PRELIMINARY_FILE="${MODEL_ROOT}/results/_encoder_preliminary_best.txt"
@@ -57,8 +58,8 @@ ALL_METHODS=(clip_infonce siglip language_bind centrobind barlow_twins masked_pr
 ALL_ENCODERS=(resnet18_1d patchtst vit_1d)
 
 CONFIG_SINGLE="${REPO_ROOT}/configs/experiment/default.yaml"
-CONFIG_MT_CSIBENCH="${REPO_ROOT}/configs/experiment/sagemaker_multitask_csibench.yaml"
-CONFIG_MT_ALL="${REPO_ROOT}/configs/experiment/sagemaker_multitask_all.yaml"
+CONFIG_MT_CSIBENCH="${REPO_ROOT}/configs/experiment/multitask_csibench.yaml"
+CONFIG_MT_ALL="${REPO_ROOT}/configs/experiment/multitask_all.yaml"
 CONFIG_AMFM="${REPO_ROOT}/configs/experiment/amfm_alignment.yaml"
 
 LOG_DIR="${MODEL_ROOT}/logs"
@@ -219,6 +220,131 @@ get_best_encoder() {
         cat "$ENCODER_PRELIMINARY_FILE"; return
     fi
     echo "resnet18_1d"
+}
+
+# ------------------------------------------------------------------
+# Multitask artifacts: registry + per-encoder text embeddings
+# (mirrors scripts/pipelines/train_sagemaker.sh:check_registry/generate_embeddings)
+# ------------------------------------------------------------------
+
+# Pre-flight a multitask config: ensure each task in the YAML has a
+# pair_registry.json on disk and an encoder-suffixed text_embeddings file
+# (auto-generating the latter via scripts/generate_text_embeddings.py if
+# missing, exactly like train_sagemaker.sh does).
+ensure_multitask_artifacts() {
+    local mt_config="$1"
+    local text_encoder="${2:-$TEXT_ENCODER}"
+    if [[ "$DRY_RUN" == "1" ]]; then
+        echo "[DRY RUN] Would pre-flight registries + ${text_encoder} embeddings for ${mt_config}"
+        return 0
+    fi
+    DATA_ROOT="$DATA_ROOT" TEXT_ENCODER="$text_encoder" REPO_ROOT="$REPO_ROOT" \
+        MT_CONFIG="$mt_config" "$PYTHON_BIN" - <<'PY'
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import yaml
+
+data_root = Path(os.environ["DATA_ROOT"])
+text_enc = os.environ["TEXT_ENCODER"]
+repo_root = Path(os.environ["REPO_ROOT"])
+mt_config = Path(os.environ["MT_CONFIG"])
+
+with open(mt_config) as f:
+    cfg = yaml.safe_load(f)
+
+tasks = cfg.get("multitask", {}).get("tasks", []) or []
+if not tasks:
+    print(f"WARN: {mt_config} has no multitask.tasks entries; skipping pre-flight",
+          file=sys.stderr)
+    sys.exit(0)
+
+gen_script = repo_root / "scripts" / "generate_text_embeddings.py"
+
+for tc in tasks:
+    name = tc.get("task_name", "?")
+    raw = tc.get("task_root")
+    if not raw:
+        print(f"ERROR: multitask task '{name}' has no task_root in {mt_config}",
+              file=sys.stderr)
+        sys.exit(1)
+    p = Path(raw)
+    if not p.is_absolute() and not (len(raw) >= 2 and raw[1] == ":"):
+        p = data_root / raw
+    reg = p / "pair_registry.json"
+    emb = p / f"text_embeddings_{text_enc}.h5"
+
+    if not reg.is_file():
+        print(f"ERROR: missing pair_registry.json for task '{name}': {reg}",
+              file=sys.stderr)
+        print(f"       generate it via scripts/generate_all_texts.py first",
+              file=sys.stderr)
+        sys.exit(1)
+
+    if emb.is_file():
+        continue
+
+    print(f"[pre-flight] generating text embeddings: {emb}")
+    subprocess.run(
+        [sys.executable, str(gen_script),
+         "--registry_path", str(reg),
+         "--output_path", str(emb),
+         "--encoder", text_enc],
+        check=True,
+    )
+PY
+}
+
+# Emit per-task multitask overrides (one per line) for a config + encoder.
+# Output keys mirror what train_sagemaker.sh:train_multitask appends:
+#     multitask.tasks.<i>.task_root=...
+#     multitask.tasks.<i>.registry_path=...
+#     multitask.tasks.<i>.text_embeddings_path=...
+multitask_overrides_lines() {
+    local mt_config="$1"
+    local text_encoder="${2:-$TEXT_ENCODER}"
+    DATA_ROOT="$DATA_ROOT" TEXT_ENCODER="$text_encoder" \
+        MT_CONFIG="$mt_config" "$PYTHON_BIN" - <<'PY'
+import os
+from pathlib import Path
+
+import yaml
+
+data_root = Path(os.environ["DATA_ROOT"])
+text_enc = os.environ["TEXT_ENCODER"]
+
+with open(os.environ["MT_CONFIG"]) as f:
+    cfg = yaml.safe_load(f)
+
+for i, tc in enumerate(cfg.get("multitask", {}).get("tasks", []) or []):
+    raw = tc.get("task_root")
+    if not raw:
+        continue
+    p = Path(raw)
+    if not p.is_absolute() and not (len(raw) >= 2 and raw[1] == ":"):
+        p = data_root / raw
+    p_str = str(p).replace("\\", "/")
+    print(f"multitask.tasks.{i}.task_root={p_str}")
+    print(f"multitask.tasks.{i}.registry_path={p_str}/pair_registry.json")
+    print(f"multitask.tasks.{i}.text_embeddings_path={p_str}/text_embeddings_{text_enc}.h5")
+PY
+}
+
+# Read the override lines into a bash array. Caller can splat the array
+# directly into the trainer's --override flag, e.g.:
+#     local mt_overrides=()
+#     load_multitask_overrides mt_overrides "$CONFIG_MT_CSIBENCH"
+load_multitask_overrides() {
+    local -n _out_array=$1  # nameref
+    local mt_config="$2"
+    local text_encoder="${3:-$TEXT_ENCODER}"
+    _out_array=()
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        _out_array+=("$line")
+    done < <(multitask_overrides_lines "$mt_config" "$text_encoder")
 }
 
 # ------------------------------------------------------------------
@@ -393,37 +519,41 @@ priority_1b() {
         log "SKIP (checkpoint exists): csibench-multitask-${best_method}"
     else
         log "Training multitask CSI-Bench..."
+        ensure_multitask_artifacts "$CONFIG_MT_CSIBENCH" "$TEXT_ENCODER"
+        local mt_csi_overrides=()
+        load_multitask_overrides mt_csi_overrides "$CONFIG_MT_CSIBENCH" "$TEXT_ENCODER"
         # NOTE: pass the parent checkpoints dir; the trainer appends
         # ${dataset}-${task}-${method} (e.g. csibench-multitask-clip_infonce)
         # automatically. Pre-appending it here would double the path.
-        run_cmd bash -c "
-            cd '${REPO_ROOT}' &&
-            '${PYTHON_BIN}' -m training.multitask_train \
-                --config '${CONFIG_MT_CSIBENCH}' \
-                --override \
-                    csi_encoder.name=${encoder} \
-                    method=${best_method} \
-                    dataset_config.data_root=${DATA_ROOT}/csibench \
-                    logging.checkpoint_dir=${MODEL_ROOT}/checkpoints \
-                    s3.enabled=false
-        "
+        run_cmd "$PYTHON_BIN" -m training.multitask_train \
+            --config "$CONFIG_MT_CSIBENCH" \
+            --override \
+                "csi_encoder.name=${encoder}" \
+                "method=${best_method}" \
+                "text_encoder.name=${TEXT_ENCODER}" \
+                "dataset_config.data_root=${DATA_ROOT}" \
+                "logging.checkpoint_dir=${MODEL_ROOT}/checkpoints" \
+                "s3.enabled=false" \
+                "${mt_csi_overrides[@]}"
     fi
 
     if checkpoint_exists all multitask "$best_method"; then
         log "SKIP (checkpoint exists): all-multitask-${best_method}"
     else
         log "Training multitask ALL (CSI-Bench + XRF55 + SignFi)..."
-        run_cmd bash -c "
-            cd '${REPO_ROOT}' &&
-            '${PYTHON_BIN}' -m training.multitask_train \
-                --config '${CONFIG_MT_ALL}' \
-                --override \
-                    csi_encoder.name=${encoder} \
-                    method=${best_method} \
-                    dataset_config.data_root=${DATA_ROOT} \
-                    logging.checkpoint_dir=${MODEL_ROOT}/checkpoints \
-                    s3.enabled=false
-        "
+        ensure_multitask_artifacts "$CONFIG_MT_ALL" "$TEXT_ENCODER"
+        local mt_all_overrides=()
+        load_multitask_overrides mt_all_overrides "$CONFIG_MT_ALL" "$TEXT_ENCODER"
+        run_cmd "$PYTHON_BIN" -m training.multitask_train \
+            --config "$CONFIG_MT_ALL" \
+            --override \
+                "csi_encoder.name=${encoder}" \
+                "method=${best_method}" \
+                "text_encoder.name=${TEXT_ENCODER}" \
+                "dataset_config.data_root=${DATA_ROOT}" \
+                "logging.checkpoint_dir=${MODEL_ROOT}/checkpoints" \
+                "s3.enabled=false" \
+                "${mt_all_overrides[@]}"
     fi
 }
 
@@ -472,10 +602,17 @@ priority_2b() {
         log "SKIP (results exist): ${mt_results}"
     elif [[ -f "$mt_ckpt" ]] || [[ "$DRY_RUN" == "1" ]]; then
         log "Cross-task eval on multitask model..."
+        ensure_multitask_artifacts "$CONFIG_MT_CSIBENCH" "$TEXT_ENCODER"
+        local mt_eval_overrides=()
+        load_multitask_overrides mt_eval_overrides "$CONFIG_MT_CSIBENCH" "$TEXT_ENCODER"
         run_cmd "$PYTHON_BIN" -m scripts.run_evaluate \
             --checkpoint "$mt_ckpt" \
             --config "$CONFIG_MT_CSIBENCH" \
-            --override "dataset_config.data_root=${DATA_ROOT}/csibench" "s3.enabled=false" \
+            --override \
+                "text_encoder.name=${TEXT_ENCODER}" \
+                "dataset_config.data_root=${DATA_ROOT}" \
+                "s3.enabled=false" \
+                "${mt_eval_overrides[@]}" \
             --tasks har fall_detection motion_source proximity user_id \
             --eval_protocols zero_shot cross_task visualization \
             --data_root "$DATA_ROOT" \
@@ -540,11 +677,19 @@ priority_4() {
     fi
 
     log "Running ambient QA on multitask CSI-Bench model..."
+    ensure_multitask_artifacts "$CONFIG_MT_CSIBENCH" "$TEXT_ENCODER"
+    local mt_aq_overrides=()
+    load_multitask_overrides mt_aq_overrides "$CONFIG_MT_CSIBENCH" "$TEXT_ENCODER"
+
     local results_dir="${MODEL_ROOT}/results/ambient_qa/clip_infonce_${encoder}"
     run_cmd "$PYTHON_BIN" -m scripts.run_evaluate \
         --checkpoint "$mt_ckpt" \
         --config "$CONFIG_MT_CSIBENCH" \
-        --override "dataset_config.data_root=${DATA_ROOT}/csibench" "s3.enabled=false" \
+        --override \
+            "text_encoder.name=${TEXT_ENCODER}" \
+            "dataset_config.data_root=${DATA_ROOT}" \
+            "s3.enabled=false" \
+            "${mt_aq_overrides[@]}" \
         --tasks har proximity user_id \
         --eval_protocols zero_shot ambient_qa \
         --data_root "$DATA_ROOT" \
@@ -559,7 +704,12 @@ priority_4() {
             run_cmd "$PYTHON_BIN" -m scripts.run_evaluate \
                 --checkpoint "$alt_ckpt" \
                 --config "$CONFIG_MT_CSIBENCH" \
-                --override "method=${method}" "dataset_config.data_root=${DATA_ROOT}/csibench" "s3.enabled=false" \
+                --override \
+                    "method=${method}" \
+                    "text_encoder.name=${TEXT_ENCODER}" \
+                    "dataset_config.data_root=${DATA_ROOT}" \
+                    "s3.enabled=false" \
+                    "${mt_aq_overrides[@]}" \
                 --tasks har proximity user_id \
                 --eval_protocols zero_shot ambient_qa \
                 --data_root "$DATA_ROOT" \
@@ -604,29 +754,31 @@ priority_5() {
 priority_6() {
     log_section "PRIORITY 6: AM-FM Pretrained Encoder"
 
+    ensure_multitask_artifacts "$CONFIG_AMFM" "$TEXT_ENCODER"
+    local amfm_overrides=()
+    load_multitask_overrides amfm_overrides "$CONFIG_AMFM" "$TEXT_ENCODER"
+
     log "6A: Frozen AM-FM encoder (train projection only)"
-    run_cmd bash -c "
-        cd '${REPO_ROOT}' &&
-        '${PYTHON_BIN}' -m training.multitask_train \
-            --config '${CONFIG_AMFM}' \
-            --override \
-                dataset_config.data_root=${DATA_ROOT} \
-                logging.checkpoint_dir=${MODEL_ROOT}/checkpoints/amfm/frozen \
-                s3.enabled=false
-    "
+    run_cmd "$PYTHON_BIN" -m training.multitask_train \
+        --config "$CONFIG_AMFM" \
+        --override \
+            "text_encoder.name=${TEXT_ENCODER}" \
+            "dataset_config.data_root=${DATA_ROOT}" \
+            "logging.checkpoint_dir=${MODEL_ROOT}/checkpoints/amfm/frozen" \
+            "s3.enabled=false" \
+            "${amfm_overrides[@]}"
 
     log "6B: Fine-tuned AM-FM encoder (encoder_lr_scale=0.1)"
-    run_cmd bash -c "
-        cd '${REPO_ROOT}' &&
-        '${PYTHON_BIN}' -m training.multitask_train \
-            --config '${CONFIG_AMFM}' \
-            --override \
-                csi_encoder.freeze=false \
-                csi_encoder.encoder_lr_scale=0.1 \
-                dataset_config.data_root=${DATA_ROOT} \
-                logging.checkpoint_dir=${MODEL_ROOT}/checkpoints/amfm/finetuned \
-                s3.enabled=false
-    "
+    run_cmd "$PYTHON_BIN" -m training.multitask_train \
+        --config "$CONFIG_AMFM" \
+        --override \
+            "csi_encoder.freeze=false" \
+            "csi_encoder.encoder_lr_scale=0.1" \
+            "text_encoder.name=${TEXT_ENCODER}" \
+            "dataset_config.data_root=${DATA_ROOT}" \
+            "logging.checkpoint_dir=${MODEL_ROOT}/checkpoints/amfm/finetuned" \
+            "s3.enabled=false" \
+            "${amfm_overrides[@]}"
 }
 
 # ------------------------------------------------------------------
@@ -668,6 +820,7 @@ main() {
     log "NUM_GPUS:      ${NUM_GPUS} (-1 = auto-detect)"
     log "BATCH_SIZE:    ${BATCH_SIZE}"
     log "MAX_EPOCHS:    ${MAX_EPOCHS}"
+    log "TEXT_ENCODER:  ${TEXT_ENCODER}"
     if [[ -n "$BEST_ENCODER" ]]; then
         log "BEST_ENCODER (override): ${BEST_ENCODER}"
     fi

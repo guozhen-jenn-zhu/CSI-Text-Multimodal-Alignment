@@ -143,12 +143,16 @@ PY
 }
 
 ensure_text_embeddings() {
+    # Mirrors scripts/pipelines/train_sagemaker.sh:generate_embeddings -- writes
+    # an encoder-suffixed file so swapping TEXT_ENCODER (e.g. for the Priority
+    # 5B ablation) does not silently reuse a CLIP-generated text_embeddings.h5
+    # whose dimensionality would mismatch a sentence-transformer projection.
     local task_root="$1"
     if [[ "$SKIP_TEXT_EMBEDDINGS" == "1" ]]; then
         return 0
     fi
     local registry="${task_root}/pair_registry.json"
-    local emb="${task_root}/text_embeddings.h5"
+    local emb="${task_root}/text_embeddings_${TEXT_ENCODER}.h5"
     if [[ ! -f "$registry" ]]; then
         log_warn "No pair_registry.json at ${registry} -- skipping text-embedding generation."
         log_warn "Run scripts/generate_all_texts.py first."
@@ -184,12 +188,20 @@ run_training() {
     n_gpus=$(detect_num_gpus)
     log "Training: dataset=${dataset} task=${task} method=${method} encoder=${encoder} (GPUs=${n_gpus})"
 
+    # Match scripts/pipelines/train_sagemaker.sh: pass task_root, registry_path
+    # and the encoder-suffixed text_embeddings_path explicitly so the trainer
+    # never has to fall back to dataset_config + auto-discovery.  This keeps
+    # encoder ablations honest (sentence_transformer cannot accidentally pick
+    # up a CLIP-generated text_embeddings.h5).
     local overrides=(
         "dataset=${dataset}"
         "task=${task}"
         "method=${method}"
         "csi_encoder.name=${encoder}"
         "text_encoder.name=${TEXT_ENCODER}"
+        "task_root=${task_root}"
+        "registry_path=${task_root}/pair_registry.json"
+        "text_embeddings_path=${task_root}/text_embeddings_${TEXT_ENCODER}.h5"
         "training.batch_size=${BATCH_SIZE}"
         "training.max_epochs=${MAX_EPOCHS}"
         "training.num_workers=${NUM_WORKERS}"
