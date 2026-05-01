@@ -48,7 +48,7 @@ PRIORITY="${PRIORITY:-all}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
 NUM_GPUS="${NUM_GPUS:--1}"
 BATCH_SIZE="${BATCH_SIZE:-64}"
-MAX_EPOCHS="${MAX_EPOCHS:-2}"
+MAX_EPOCHS="${MAX_EPOCHS:-200}"
 TEXT_ENCODER="${TEXT_ENCODER:-clip_vit_b32}"
 
 BEST_ENCODER="${BEST_ENCODER:-}"
@@ -261,8 +261,6 @@ if not tasks:
           file=sys.stderr)
     sys.exit(0)
 
-gen_script = repo_root / "scripts" / "generate_text_embeddings.py"
-
 for tc in tasks:
     name = tc.get("task_name", "?")
     raw = tc.get("task_root")
@@ -287,11 +285,15 @@ for tc in tasks:
         continue
 
     print(f"[pre-flight] generating text embeddings: {emb}")
+    # Run as a module from repo_root cwd so 'from data.pair_registry import
+    # PairRegistry' inside generate_text_embeddings.py resolves -- mirrors
+    # train_sagemaker.sh which always `cd "$REPO_ROOT"` before invoking it.
     subprocess.run(
-        [sys.executable, str(gen_script),
+        [sys.executable, "-m", "scripts.generate_text_embeddings",
          "--registry_path", str(reg),
          "--output_path", str(emb),
          "--encoder", text_enc],
+        cwd=str(repo_root),
         check=True,
     )
 PY

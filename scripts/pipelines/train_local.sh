@@ -162,10 +162,14 @@ ensure_text_embeddings() {
         return 0
     fi
     log "Generating text embeddings -> ${emb}"
-    "$PYTHON_BIN" "${REPO_ROOT}/scripts/generate_text_embeddings.py" \
+    # Invoke as a module from the repo root so 'from data.pair_registry'
+    # inside generate_text_embeddings.py resolves regardless of how
+    # PYTHONPATH ends up being interpreted (Git Bash on Windows can mangle
+    # MSYS-style /d/... paths). Mirrors train_sagemaker.sh.
+    ( cd "$REPO_ROOT" && "$PYTHON_BIN" -m scripts.generate_text_embeddings \
         --registry_path "$registry" \
         --output_path "$emb" \
-        --encoder "$TEXT_ENCODER"
+        --encoder "$TEXT_ENCODER" )
 }
 
 run_training() {
