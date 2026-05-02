@@ -2,8 +2,8 @@
 #
 # Local Experiment Runner
 # =======================
-# Local equivalent of scripts/pipelines/run_neurips_experiments.sh -- orchestrates
-# the same priority levels but without any SageMaker / AWS S3 dependencies:
+# Orchestrates all priorities of the paper roadmap on a local machine
+# (no AWS / S3 dependencies):
 #
 #   Priority 0:  Encoder preliminary (3 runs)
 #   Priority 1A: Main benchmark (6 methods x best encoder x 3 datasets)
@@ -224,7 +224,6 @@ get_best_encoder() {
 
 # ------------------------------------------------------------------
 # Multitask artifacts: registry + per-encoder text embeddings
-# (mirrors scripts/pipelines/train_sagemaker.sh:check_registry/generate_embeddings)
 # ------------------------------------------------------------------
 
 # Pre-flight a multitask config: ensure each task in the YAML has a
@@ -286,8 +285,7 @@ for tc in tasks:
 
     print(f"[pre-flight] generating text embeddings: {emb}")
     # Run as a module from repo_root cwd so 'from data.pair_registry import
-    # PairRegistry' inside generate_text_embeddings.py resolves -- mirrors
-    # train_sagemaker.sh which always `cd "$REPO_ROOT"` before invoking it.
+    # PairRegistry' inside generate_text_embeddings.py resolves.
     subprocess.run(
         [sys.executable, "-m", "scripts.generate_text_embeddings",
          "--registry_path", str(reg),
@@ -300,7 +298,7 @@ PY
 }
 
 # Emit per-task multitask overrides (one per line) for a config + encoder.
-# Output keys mirror what train_sagemaker.sh:train_multitask appends:
+# Output keys (one per task index i):
 #     multitask.tasks.<i>.task_root=...
 #     multitask.tasks.<i>.registry_path=...
 #     multitask.tasks.<i>.text_embeddings_path=...

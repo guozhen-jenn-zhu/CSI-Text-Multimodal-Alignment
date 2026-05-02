@@ -12,25 +12,25 @@
 #
 # Usage:
 #   # Train HAR task (default)
-#   bash scripts/pipelines/train_sagemaker.sh
+#   bash scripts/pipelines/sagemaker_scripts/train_sagemaker.sh
 #
 #   # Train a specific task
-#   TASK=fall_detection bash scripts/pipelines/train_sagemaker.sh
+#   TASK=fall_detection bash scripts/pipelines/sagemaker_scripts/train_sagemaker.sh
 #
 #   # Train all CSI-Bench tasks sequentially
-#   TASK=all bash scripts/pipelines/train_sagemaker.sh
+#   TASK=all bash scripts/pipelines/sagemaker_scripts/train_sagemaker.sh
 #
 #   # Train specific CSI-Bench tasks (comma-separated)
-#   TASK=har,fall_detection,proximity bash scripts/pipelines/train_sagemaker.sh
+#   TASK=har,fall_detection,proximity bash scripts/pipelines/sagemaker_scripts/train_sagemaker.sh
 #
 #   # Train SignFI
-#   DATASET=signfi TASK=sign_recognition bash scripts/pipelines/train_sagemaker.sh
+#   DATASET=signfi TASK=sign_recognition bash scripts/pipelines/sagemaker_scripts/train_sagemaker.sh
 #
 #   # Train XRF55
-#   DATASET=xrf55 TASK=action_recognition bash scripts/pipelines/train_sagemaker.sh
+#   DATASET=xrf55 TASK=action_recognition bash scripts/pipelines/sagemaker_scripts/train_sagemaker.sh
 #
 #   # Customize method and encoder
-#   TASK=har METHOD=siglip ENCODER=patchtst bash scripts/pipelines/train_sagemaker.sh
+#   TASK=har METHOD=siglip ENCODER=patchtst bash scripts/pipelines/sagemaker_scripts/train_sagemaker.sh
 
 set -euo pipefail
 
@@ -50,7 +50,7 @@ LR="${LR:-1e-3}"
 REPO_ROOT="/home/sagemaker-user/CSI-Text-Multimodal-Alignment"
 DATA_ROOT="/home/sagemaker-user/Multimodal_CSI_Text/Dataset"
 MODEL_ROOT="/home/sagemaker-user/Multimodal_CSI_Text/Model"
-CONFIG="${REPO_ROOT}/configs/experiment/sagemaker_g5.yaml"
+CONFIG="${REPO_ROOT}/configs/experiment/sagemaker_configs/sagemaker_g5.yaml"
 
 export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
 
@@ -539,7 +539,7 @@ main() {
     # ---- Multitask modes ----
     if [[ "$TASK" == "multitask_csibench" ]]; then
         local mt_tasks=("${ALL_CSIBENCH_TASKS[@]}")
-        local mt_config="${REPO_ROOT}/configs/experiment/sagemaker_multitask_csibench.yaml"
+        local mt_config="${REPO_ROOT}/configs/experiment/sagemaker_configs/sagemaker_multitask_csibench.yaml"
         for t in "${mt_tasks[@]}"; do
             check_registry "$t"
             generate_embeddings "$t"
@@ -552,7 +552,7 @@ main() {
 
     if [[ "$TASK" == "multitask_all" ]]; then
         local mt_tasks=("${ALL_CSIBENCH_TASKS[@]}" "${ALL_SIGNFI_TASKS[@]}" "${ALL_XRF55_TASKS[@]}")
-        local mt_config="${REPO_ROOT}/configs/experiment/sagemaker_multitask_all.yaml"
+        local mt_config="${REPO_ROOT}/configs/experiment/sagemaker_configs/sagemaker_multitask_all.yaml"
         for t in "${mt_tasks[@]}"; do
             check_registry "$t"
             generate_embeddings "$t"

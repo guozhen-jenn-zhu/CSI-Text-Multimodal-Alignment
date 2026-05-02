@@ -5,9 +5,8 @@
 # By default, runs ONLY the evaluation step (Step 3) with an existing
 # checkpoint.  Pass --retrain to also run Steps 1-2 (split + train).
 #
-# Training mirrors the standard train_sagemaker.sh pipeline: auto-detects
-# GPUs, uses torchrun for multi-GPU, and passes registry + text embeddings
-# explicitly.
+# Training auto-detects GPUs, uses torchrun for multi-GPU, and passes the
+# pair registry + text embeddings explicitly.
 #
 # Usage:
 #   # Evaluate only (recommended -- uses existing checkpoint):
@@ -30,9 +29,11 @@ for arg in "$@"; do
     esac
 done
 
-REPO_ROOT="/home/sagemaker-user/CSI-Text-Multimodal-Alignment"
-DATA_ROOT="/home/sagemaker-user/Multimodal_CSI_Text/Dataset"
-MODEL_ROOT="/home/sagemaker-user/Multimodal_CSI_Text/Model"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${REPO_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+DATA_ROOT="${DATA_ROOT:-${REPO_ROOT}/data/Dataset}"
+MODEL_ROOT="${MODEL_ROOT:-${REPO_ROOT}/runs}"
+CONFIG="${CONFIG:-${REPO_ROOT}/configs/experiment/default.yaml}"
 SIGNFI_ROOT="${DATA_ROOT}/signfi/sign_recognition"
 REGISTRY_PATH="${SIGNFI_ROOT}/pair_registry.json"
 TEXT_ENCODER="${TEXT_ENCODER:-clip_vit_b32}"
@@ -40,7 +41,6 @@ TEXT_EMB_PATH="${SIGNFI_ROOT}/text_embeddings_${TEXT_ENCODER}.h5"
 OUTPUT_DIR="${MODEL_ROOT}/results/held_out_classes_fixed"
 CKPT_BASE="${MODEL_ROOT}/checkpoints/held_out_signfi"
 CKPT_PATH="${CKPT_BASE}/signfi-sign_recognition-clip_infonce/best.pt"
-CONFIG="${REPO_ROOT}/configs/experiment/sagemaker_g5.yaml"
 
 # Use the ORIGINAL split (class IDs 0-275 are identical regardless of
 # registry vs template ordering, so the existing split is valid).
@@ -83,8 +83,6 @@ if [ "${RETRAIN}" = true ]; then
         --registry_path "${REGISTRY_PATH}"
 
     # Step 2: Train on 200-class subset
-    # Uses the same pipeline as train_sagemaker.sh: multi-GPU, explicit
-    # registry + text embeddings, matching the full model's training setup.
     echo ""
     echo "--- Step 2: Training on 200-class subset ---"
 

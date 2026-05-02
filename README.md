@@ -161,7 +161,7 @@ It auto-detects GPUs (falls back to CPU), runs **8 priority levels** end-to-end,
 | **6** | **AM-FM pretrained encoder** -- 6A: frozen (projection-only); 6B: fine-tuned with `encoder_lr_scale=0.1`. Requires `omegaconf` to deserialize the checkpoint | 2 runs |
 | **7** | **Analysis & visualization** (eval-only) -- final paper figures, t-SNE/UMAP embeddings, linear-probe accuracy; aggregates everything into `runs/results/_paper_tables/` | 0 |
 
-`run_local_experiments.sh` is the local equivalent of `scripts/pipelines/run_neurips_experiments.sh` (which has the same priority structure but launches every job as a SageMaker training job).
+`run_local_experiments.sh` is the local equivalent of `scripts/pipelines/sagemaker_scripts/run_sagemaker_experiments.sh` (which has the same priority structure but launches every job as a SageMaker training job).
 
 ### Common usage patterns
 
@@ -338,10 +338,10 @@ python scripts/run_evaluate.py \
 | `--checkpoint` | (required) | Path to trained `.pt` checkpoint |
 | `--config` | (required) | Experiment YAML config |
 | `--override` | (none) | Config overrides |
-| `--eval_protocols` | all 5 protocols | Which protocols to run |
+| `--eval_protocols` | `zero_shot ambient_qa visualization` | Which protocols to run |
 | `--output_dir` | `results` | Output directory for metrics and figures |
 
-Available evaluation protocols: `zero_shot`, `ambient_qa`, `cross_task`, `cross_dataset`, `visualization`.
+Available evaluation protocols: `zero_shot`, `ambient_qa`, `cross_task`, `cross_dataset`, `visualization`. The default set runs `zero_shot`, `ambient_qa`, and `visualization`; `cross_task` and `cross_dataset` are still supported but must be requested explicitly (the orchestrator drives them via the dedicated Priority 2A/2B stages).
 
 **Examples:**
 
@@ -373,7 +373,7 @@ CSI-Text-Multimodal-Alignment/
 ├── configs/
 │   ├── dataset/                       # csibench.yaml, xrf55.yaml, signfi.yaml
 │   ├── method/                        # clip_infonce, siglip, language_bind, centrobind, barlow_twins, masked_predict
-│   └── experiment/                    # default, amfm_alignment, multitask_*, sagemaker_*
+│   └── experiment/                    # default, amfm_alignment, multitask_*; SageMaker variants live under experiment/sagemaker_configs/
 ├── data/
 │   ├── metadata_loader.py             # Unified CSV + split JSON + per-sample H5 loader
 │   ├── dataset.py                     # Single-task PyTorch Dataset (lazy/preload, DistributedSampler)
@@ -406,7 +406,7 @@ CSI-Text-Multimodal-Alignment/
 │   ├── generate_all_texts.py          # Text pair registry generation (all datasets)
 │   ├── generate_text_embeddings.py    # Encoder-specific text embedding pre-compute
 │   ├── preprocess_to_consolidated.py  # H5 consolidation for fast I/O
-│   ├── pipelines/                     # End-to-end orchestrators (run_local_experiments.sh, train_local.sh, run_neurips_experiments.sh, train_sagemaker.sh)
+│   ├── pipelines/                     # End-to-end orchestrators (run_local_experiments.sh, train_local.sh; SageMaker variants under pipelines/sagemaker_scripts/)
 │   ├── baselines/                     # Supervised baselines (no text alignment)
 │   └── paper_experiments/             # Paper-reproducibility extras (multi-seed, held-out, template-count, open-vocab)
 ├── datasheet.md                       # Datasheet for Datasets (Gebru et al.)
@@ -448,7 +448,7 @@ All methods are selected via `configs/method/<name>.yaml` and `method=` in the e
 
 ```bibtex
 @misc{zhu2026csitext,
-  title        = {CSI-Text: A Multimodal Benchmark for Language-Grounded WiFi Sensing},
+  title        = {CSI-TextBench: A Dataset and Benchmark for Language-Grounded Ambient Sensing Perception},
   author       = {Zhu, Guozhen and others},
   year         = {2026},
   note         = {NeurIPS 2026 E\&D Track},

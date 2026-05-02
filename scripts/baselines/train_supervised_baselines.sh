@@ -2,11 +2,11 @@
 #
 # Train supervised ResNet-18 baselines for all tasks.
 #
-# Usage (SageMaker):
+# Usage:
 #   bash scripts/baselines/train_supervised_baselines.sh
 #
 # Usage (custom paths):
-#   DATA_ROOT=/path/to/data RESULTS_DIR=/path/to/output bash scripts/baselines/train_supervised_baselines.sh
+#   DATA_ROOT=/path/to/data MODEL_ROOT=/path/to/runs bash scripts/baselines/train_supervised_baselines.sh
 #
 # To train only specific dataset(s):
 #   DATASET=xrf55 bash scripts/baselines/train_supervised_baselines.sh
@@ -17,13 +17,15 @@
 set -euo pipefail
 
 # ------------------------------------------------------------------
-# Configuration
+# Configuration (env-overridable)
 # ------------------------------------------------------------------
-# script lives in scripts/baselines/, so REPO_ROOT is two levels up.
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-DATA_ROOT="${DATA_ROOT:-/home/sagemaker-user/Multimodal_CSI_Text/Dataset}"
-RESULTS_DIR="${RESULTS_DIR:-${REPO_ROOT}/paper_results/supervised_baselines}"
-DATASET="${DATASET:-all}"    # "all", "xrf55", "signfi", or "csibench"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# SCRIPT_DIR is scripts/baselines/, so REPO_ROOT is two levels up.
+REPO_ROOT="${REPO_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+DATA_ROOT="${DATA_ROOT:-${REPO_ROOT}/data/Dataset}"
+MODEL_ROOT="${MODEL_ROOT:-${REPO_ROOT}/runs}"
+RESULTS_DIR="${RESULTS_DIR:-${MODEL_ROOT}/results/supervised_baselines}"
+DATASET="${DATASET:-all}"    # "all", "xrf55", "signfi", "csibench", or "csibench_standalone"
 
 BATCH_SIZE="${BATCH_SIZE:-128}"
 MAX_EPOCHS="${MAX_EPOCHS:-200}"
@@ -153,6 +155,7 @@ main() {
     log "=== Supervised Baseline Training ==="
     log "  REPO_ROOT:   ${REPO_ROOT}"
     log "  DATA_ROOT:   ${DATA_ROOT}"
+    log "  MODEL_ROOT:  ${MODEL_ROOT}"
     log "  RESULTS_DIR: ${RESULTS_DIR}"
     log "  DATASET:     ${DATASET}"
 

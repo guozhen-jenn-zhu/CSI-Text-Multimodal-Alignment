@@ -14,17 +14,18 @@
 #   2. Run: python scripts/paper_experiments/generate_template_count_registries.py \
 #               --task_root $DATA_ROOT/csibench/multitask/har
 #
-# Usage (on SageMaker):
+# Usage:
 #   bash scripts/paper_experiments/run_template_count_ablation.sh              # train + eval all
 #   DRY_RUN=1 bash scripts/paper_experiments/run_template_count_ablation.sh    # print commands
 #   N_TPL="1 3" bash scripts/paper_experiments/run_template_count_ablation.sh  # subset of variants
 
 set -euo pipefail
 
-REPO_ROOT="${REPO_ROOT:-/home/sagemaker-user/CSI-Text-Multimodal-Alignment}"
-DATA_ROOT="${DATA_ROOT:-/home/sagemaker-user/Multimodal_CSI_Text/Dataset}"
-MODEL_ROOT="${MODEL_ROOT:-/home/sagemaker-user/Multimodal_CSI_Text/Model}"
-CONFIG="${REPO_ROOT}/configs/experiment/sagemaker_g5.yaml"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${REPO_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+DATA_ROOT="${DATA_ROOT:-${REPO_ROOT}/data/Dataset}"
+MODEL_ROOT="${MODEL_ROOT:-${REPO_ROOT}/runs}"
+CONFIG="${CONFIG:-${REPO_ROOT}/configs/experiment/default.yaml}"
 
 ENCODER="resnet18_1d"
 TEXT_ENCODER="clip_vit_b32"

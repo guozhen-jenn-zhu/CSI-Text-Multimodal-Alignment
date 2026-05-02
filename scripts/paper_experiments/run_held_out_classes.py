@@ -14,17 +14,17 @@ Usage:
         --signfi_root data/processed/signfi/sign_recognition \
         --registry_path data/processed/signfi/sign_recognition/pair_registry.json
 
-    # Step 2: Train on 200-class subset (on SageMaker)
+    # Step 2: Train on 200-class subset
     python scripts/paper_experiments/run_held_out_classes.py --stage train \
-        --signfi_root /data/Dataset/signfi/sign_recognition \
-        --checkpoint_dir /model/checkpoints/held_out
+        --signfi_root data/Dataset/signfi/sign_recognition \
+        --checkpoint_dir runs/checkpoints/held_out
 
     # Step 3: Evaluate on held-out 76 classes
     python scripts/paper_experiments/run_held_out_classes.py --stage evaluate \
-        --signfi_root /data/Dataset/signfi/sign_recognition \
-        --checkpoint /model/checkpoints/held_out/best.pt \
-        --output_dir paper_results/held_out_classes_fixed \
-        --registry_path /data/Dataset/signfi/sign_recognition/pair_registry.json
+        --signfi_root data/Dataset/signfi/sign_recognition \
+        --checkpoint runs/checkpoints/held_out/best.pt \
+        --output_dir runs/results/held_out_classes_fixed \
+        --registry_path data/Dataset/signfi/sign_recognition/pair_registry.json
 """
 
 from __future__ import annotations

@@ -7,18 +7,18 @@ training.  Compares against the original training templates as a baseline.
 Results are saved to ``paper_results/open_vocabulary/`` — no existing
 files, registries, or checkpoints are modified.
 
-Usage (on SageMaker — config is read from the checkpoint)
----------------------------------------------------------
+Usage (config is read from the checkpoint)
+------------------------------------------
 PYTHONPATH=$(pwd) python scripts/paper_experiments/run_open_vocab_eval.py \\
-    --checkpoint /home/sagemaker-user/Multimodal_CSI_Text/Model/checkpoints/csibench-har-clip_infonce/best.pt \\
-    --data_root /home/sagemaker-user/Multimodal_CSI_Text/Dataset
+    --checkpoint runs/checkpoints/csibench-har-clip_infonce/best.pt \\
+    --data_root data/Dataset
 
-Usage (local — with explicit config file)
------------------------------------------
+Usage (with an explicit config file)
+------------------------------------
 PYTHONPATH=$(pwd) python scripts/paper_experiments/run_open_vocab_eval.py \\
-    --checkpoint /local/best.pt \\
-    --config paper_results/raw/csibench/har/clip_infonce_resnet18_1d/config.yaml \\
-    --data_root /local/Dataset
+    --checkpoint runs/checkpoints/csibench-har-clip_infonce/best.pt \\
+    --config configs/experiment/default.yaml \\
+    --data_root data/Dataset
 """
 
 from __future__ import annotations

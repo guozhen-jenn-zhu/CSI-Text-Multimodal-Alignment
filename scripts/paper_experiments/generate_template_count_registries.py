@@ -7,9 +7,9 @@ For the 10-template variant, this script combines the 5 base templates
 from task_templates.py with 5 additional templates from
 har_extended_templates.py.  The 1/3/5 variants are subsets of the base 5.
 
-Usage (on SageMaker):
+Usage:
     python scripts/paper_experiments/generate_template_count_registries.py \
-        --task_root /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench/multitask/har \
+        --task_root data/Dataset/csibench/multitask/har \
         --output_dir data/generated_texts/ablation_template_count
 
 Output layout:

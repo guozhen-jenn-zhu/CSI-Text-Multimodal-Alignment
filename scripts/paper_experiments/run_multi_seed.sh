@@ -11,16 +11,14 @@
 #
 # Usage:
 #   bash scripts/paper_experiments/run_multi_seed.sh
-#
-# Environment:
-#   Designed for SageMaker g5 instances.
-#   Uses the same training pipeline as scripts/pipelines/train_sagemaker.sh.
 
 set -euo pipefail
 
-REPO_ROOT="/home/sagemaker-user/CSI-Text-Multimodal-Alignment"
-DATA_ROOT="/home/sagemaker-user/Multimodal_CSI_Text/Dataset"
-MODEL_ROOT="/home/sagemaker-user/Multimodal_CSI_Text/Model"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${REPO_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+DATA_ROOT="${DATA_ROOT:-${REPO_ROOT}/data/Dataset}"
+MODEL_ROOT="${MODEL_ROOT:-${REPO_ROOT}/runs}"
+CONFIG="${CONFIG:-${REPO_ROOT}/configs/experiment/default.yaml}"
 RESULTS_DIR="${MODEL_ROOT}/results/multi_seed"
 
 export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
@@ -101,8 +99,8 @@ for method in "${METHODS[@]}"; do
 
             mkdir -p "${out_dir}"
 
-            # Determine config, task_root, and registry parent
-            CONFIG="${REPO_ROOT}/configs/experiment/sagemaker_g5.yaml"
+            # Determine task_root and registry parent (CONFIG inherits the
+            # script-level default set above so callers can override).
             if [ "$dataset" = "csibench" ]; then
                 case "$task" in
                     har|proximity|user_id)

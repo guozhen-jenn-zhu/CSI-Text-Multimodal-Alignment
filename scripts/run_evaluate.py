@@ -1337,9 +1337,10 @@ def main() -> None:
     parser.add_argument(
         "--eval_protocols",
         nargs="+",
-        default=["zero_shot", "ambient_qa", "cross_task", "cross_dataset", "visualization"],
-        help="Protocols to run. Options: zero_shot, ambient_qa, cross_task, "
-             "cross_dataset, visualization, retrieval, few_shot",
+        default=["zero_shot", "ambient_qa", "visualization"],
+        help="Protocols to run by default: zero_shot, ambient_qa, visualization. "
+             "Pass any of these explicitly to opt in: cross_task, cross_dataset, "
+             "retrieval, few_shot.",
     )
     parser.add_argument("--output_dir", default="results", help="Directory for metrics and tables")
     parser.add_argument(

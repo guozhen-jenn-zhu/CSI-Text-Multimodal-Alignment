@@ -15,22 +15,22 @@
 #
 # Usage:
 #   # Run all experiments sequentially
-#   bash scripts/pipelines/run_neurips_experiments.sh
+#   bash scripts/pipelines/sagemaker_scripts/run_sagemaker_experiments.sh
 #
 #   # Run a specific priority level
-#   PRIORITY=0 bash scripts/pipelines/run_neurips_experiments.sh
+#   PRIORITY=0 bash scripts/pipelines/sagemaker_scripts/run_sagemaker_experiments.sh
 #
 #   # Run priorities 0 through 2
-#   PRIORITY=0,1,2 bash scripts/pipelines/run_neurips_experiments.sh
+#   PRIORITY=0,1,2 bash scripts/pipelines/sagemaker_scripts/run_sagemaker_experiments.sh
 #
 #   # Dry run (print commands without executing)
-#   DRY_RUN=1 bash scripts/pipelines/run_neurips_experiments.sh
+#   DRY_RUN=1 bash scripts/pipelines/sagemaker_scripts/run_sagemaker_experiments.sh
 #
 #   # Override the best encoder (skip Priority 0)
-#   BEST_ENCODER=patchtst PRIORITY=1 bash scripts/pipelines/run_neurips_experiments.sh
+#   BEST_ENCODER=patchtst PRIORITY=1 bash scripts/pipelines/sagemaker_scripts/run_sagemaker_experiments.sh
 #
 #   # Force re-run of all experiments (disable skip logic)
-#   SKIP_EXISTING=0 bash scripts/pipelines/run_neurips_experiments.sh
+#   SKIP_EXISTING=0 bash scripts/pipelines/sagemaker_scripts/run_sagemaker_experiments.sh
 
 set -euo pipefail
 
@@ -53,9 +53,9 @@ ENCODER_PRELIMINARY_FILE="${MODEL_ROOT}/results/_encoder_preliminary_best.txt"
 ALL_METHODS=(clip_infonce siglip language_bind centrobind barlow_twins masked_predict)
 ALL_ENCODERS=(resnet18_1d patchtst vit_1d)
 
-CONFIG_SINGLE="${REPO_ROOT}/configs/experiment/sagemaker_g5.yaml"
-CONFIG_MT_CSIBENCH="${REPO_ROOT}/configs/experiment/sagemaker_multitask_csibench.yaml"
-CONFIG_MT_ALL="${REPO_ROOT}/configs/experiment/sagemaker_multitask_all.yaml"
+CONFIG_SINGLE="${REPO_ROOT}/configs/experiment/sagemaker_configs/sagemaker_g5.yaml"
+CONFIG_MT_CSIBENCH="${REPO_ROOT}/configs/experiment/sagemaker_configs/sagemaker_multitask_csibench.yaml"
+CONFIG_MT_ALL="${REPO_ROOT}/configs/experiment/sagemaker_configs/sagemaker_multitask_all.yaml"
 CONFIG_AMFM="${REPO_ROOT}/configs/experiment/amfm_alignment.yaml"
 
 LOG_DIR="${MODEL_ROOT}/results/_logs"
@@ -133,7 +133,7 @@ train_single() {
         TASK="$task" \
         METHOD="$method" \
         ENCODER="$encoder" \
-        bash "${REPO_ROOT}/scripts/pipelines/train_sagemaker.sh"
+        bash "${REPO_ROOT}/scripts/pipelines/sagemaker_scripts/train_sagemaker.sh"
 }
 
 evaluate_single() {
@@ -286,7 +286,7 @@ priority_1b() {
             TASK=multitask_csibench \
             METHOD="$best_method" \
             ENCODER="$encoder" \
-            bash "${REPO_ROOT}/scripts/pipelines/train_sagemaker.sh"
+            bash "${REPO_ROOT}/scripts/pipelines/sagemaker_scripts/train_sagemaker.sh"
     fi
 
     if checkpoint_exists all multitask "$best_method"; then
@@ -297,7 +297,7 @@ priority_1b() {
             TASK=multitask_all \
             METHOD="$best_method" \
             ENCODER="$encoder" \
-            bash "${REPO_ROOT}/scripts/pipelines/train_sagemaker.sh"
+            bash "${REPO_ROOT}/scripts/pipelines/sagemaker_scripts/train_sagemaker.sh"
     fi
 }
 
@@ -481,7 +481,7 @@ priority_5() {
     run_cmd env \
         DATASET=csibench TASK=har METHOD=clip_infonce ENCODER="$encoder" \
         TEXT_ENCODER=sentence_transformer \
-        bash "${REPO_ROOT}/scripts/pipelines/train_sagemaker.sh"
+        bash "${REPO_ROOT}/scripts/pipelines/sagemaker_scripts/train_sagemaker.sh"
 
     log "5C: Embedding dimension ablation"
     for dim in 128 256 512; do

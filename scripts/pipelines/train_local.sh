@@ -62,7 +62,7 @@ NUM_GPUS="${NUM_GPUS:--1}"          # -1 = auto-detect, 0 = CPU, >=1 = explicit
 SKIP_TEXT_EMBEDDINGS="${SKIP_TEXT_EMBEDDINGS:-0}"
 EXTRA_OVERRIDES="${EXTRA_OVERRIDES:-}"
 
-# Task definitions (mirrors train_sagemaker.sh layout under DATA_ROOT)
+# Task definitions: task name -> dataset-relative subpath under DATA_ROOT
 declare -A CSIBENCH_STANDALONE_TASKS=(
     [fall_detection]="csibench/fall_detection"
     [motion_source]="csibench/motion_source"
@@ -143,10 +143,10 @@ PY
 }
 
 ensure_text_embeddings() {
-    # Mirrors scripts/pipelines/train_sagemaker.sh:generate_embeddings -- writes
-    # an encoder-suffixed file so swapping TEXT_ENCODER (e.g. for the Priority
-    # 5B ablation) does not silently reuse a CLIP-generated text_embeddings.h5
-    # whose dimensionality would mismatch a sentence-transformer projection.
+    # Writes an encoder-suffixed file so swapping TEXT_ENCODER (e.g. for the
+    # Priority 5B ablation) does not silently reuse a CLIP-generated
+    # text_embeddings.h5 whose dimensionality would mismatch a
+    # sentence-transformer projection.
     local task_root="$1"
     if [[ "$SKIP_TEXT_EMBEDDINGS" == "1" ]]; then
         return 0
@@ -165,7 +165,7 @@ ensure_text_embeddings() {
     # Invoke as a module from the repo root so 'from data.pair_registry'
     # inside generate_text_embeddings.py resolves regardless of how
     # PYTHONPATH ends up being interpreted (Git Bash on Windows can mangle
-    # MSYS-style /d/... paths). Mirrors train_sagemaker.sh.
+    # MSYS-style /d/... paths).
     ( cd "$REPO_ROOT" && "$PYTHON_BIN" -m scripts.generate_text_embeddings \
         --registry_path "$registry" \
         --output_path "$emb" \
@@ -181,8 +181,7 @@ run_training() {
     # The trainer (training/train.py / training/multitask_train.py) appends
     # f"{dataset}-{task}-{method}" itself, so passing the full per-run dir
     # here would yield a doubled path like .../csibench-har-clip_infonce/
-    # csibench-har-clip_infonce/best.pt. This matches the convention used in
-    # scripts/pipelines/train_sagemaker.sh.
+    # csibench-har-clip_infonce/best.pt.
     local ckpt_dir="${MODEL_ROOT}/checkpoints"
     mkdir -p "$ckpt_dir" "${MODEL_ROOT}/logs"
 
@@ -192,11 +191,11 @@ run_training() {
     n_gpus=$(detect_num_gpus)
     log "Training: dataset=${dataset} task=${task} method=${method} encoder=${encoder} (GPUs=${n_gpus})"
 
-    # Match scripts/pipelines/train_sagemaker.sh: pass task_root, registry_path
-    # and the encoder-suffixed text_embeddings_path explicitly so the trainer
-    # never has to fall back to dataset_config + auto-discovery.  This keeps
-    # encoder ablations honest (sentence_transformer cannot accidentally pick
-    # up a CLIP-generated text_embeddings.h5).
+    # Pass task_root, registry_path and the encoder-suffixed
+    # text_embeddings_path explicitly so the trainer never has to fall back
+    # to dataset_config + auto-discovery. This keeps encoder ablations honest
+    # (sentence_transformer cannot accidentally pick up a CLIP-generated
+    # text_embeddings.h5).
     local overrides=(
         "dataset=${dataset}"
         "task=${task}"
