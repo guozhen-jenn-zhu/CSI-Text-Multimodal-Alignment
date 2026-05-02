@@ -230,7 +230,7 @@ get_best_encoder() {
 # Pre-flight a multitask config: ensure each task in the YAML has a
 # pair_registry.json on disk and an encoder-suffixed text_embeddings file
 # (auto-generating the latter via scripts/generate_text_embeddings.py if
-# missing, exactly like train_sagemaker.sh does).
+# missing).
 ensure_multitask_artifacts() {
     local mt_config="$1"
     local text_encoder="${2:-$TEXT_ENCODER}"
