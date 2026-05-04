@@ -75,7 +75,7 @@ The unified pipeline (see `data/preprocessing/unified_preprocess.py`) applies:
 1. **Amplitude extraction and tensor shaping**: Raw CSI is converted to a canonical **channel–subcarrier–time** layout where applicable (handles multiple raw layouts per source).
 2. **Subcarrier and temporal standardization**: **Interpolation** maps inputs to a fixed **subcarrier count** and **time length** (reference configuration: **64** subcarriers, **500** time steps).
 3. **Per-sample amplitude normalization**: Traces are normalized to stabilize scale across devices and environments.
-4. **Unified storage**: Processed tensors and labels are stored in a **common HDF5-oriented layout** (e.g., `csi_data`, `labels`, optional `sample_ids`) for use with the provided PyTorch dataset loader.
+4. **Unified on-disk layout**: Each task directory ships with `metadata/sample_metadata.csv`, `splits/{train,val,test}_id.json`, a `pair_registry.json` describing the many-to-many CSI–text mapping, and per-sample HDF5 files referenced by `file_path` in the CSV. Encoder-specific text embedding caches (`text_embeddings_<encoder>.h5`) are generated on demand by the training pipeline. The HDF5 dataset key inside each per-sample file follows the source convention (`CSI_amps` for CSI-Bench, dynamic per-sample for XRF55, `amplitude` for SignFi); a consolidated layout with key `csi_data` is also produced when users opt into `scripts/preprocess_to_consolidated.py` for faster I/O.
 
 Preprocessing choices affect comparability; experiments should fix these hyperparameters when reporting results.
 
@@ -125,9 +125,57 @@ Use the contact channels provided on the **GitHub repository** (issues and maint
 
 Future revisions may add splits, fix preprocessing bugs, or extend text generation; version tags and changelogs will accompany substantive updates.
 
----
 
-## References
+### Source CSI datasets
 
-- Gebru, T., et al. “Datasheets for Datasets.” *Communications of the ACM*, 2021.
-- CSI-Bench, XRF55, and SignFi: cite the original works when using their CSI portions.
+```bibtex
+
+@inproceedings{zhu2025csibench,
+  title  = {{CSI-Bench}: A Large-Scale In-the-Wild Dataset for Multi-Task WiFi Sensing},
+  author = {Zhu, Guozhen and Hu, Yuqian and Gao, Weihang and Wang, Wei-Hsiang and Wang, Beibei and Liu, K. J. Ray},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year   = {2025}
+}
+
+@article{wang2024xrf55,
+  title   = {{XRF55}: A Radio Frequency Dataset for Human Indoor Action Analysis},
+  author  = {Wang, Fei and Lv, Yizhe and Zhu, Mengdie and Ding, Han and Han, Jinsong},
+  journal = {Proceedings of the ACM on Interactive, Mobile, Wearable and Ubiquitous Technologies (IMWUT)},
+  volume  = {8},
+  number  = {1},
+  pages   = {1--34},
+  year    = {2024},
+  doi     = {10.1145/3643529}
+}
+
+@article{ma2018signfi,
+  title   = {{SignFi}: Sign Language Recognition Using {WiFi}},
+  author  = {Ma, Yongsen and Zhou, Gang and Wang, Shuangquan and Zhao, Hongyang and Jung, Woosub},
+  journal = {Proceedings of the ACM on Interactive, Mobile, Wearable and Ubiquitous Technologies (IMWUT)},
+  volume  = {2},
+  number  = {1},
+  pages   = {1--21},
+  year    = {2018},
+  doi     = {10.1145/3191755}
+}
+
+```
+
+### Datasheet methodology
+
+```bibtex
+@article{gebru2021datasheets,
+  title   = {Datasheets for Datasets},
+  author  = {Gebru, Timnit and Morgenstern, Jamie and Vecchione, Briana and Vaughan, Jennifer Wortman and Wallach, Hanna and Daum{\'e}, III, Hal and Crawford, Kate},
+  journal = {Communications of the ACM},
+  volume  = {64},
+  number  = {12},
+  pages   = {86--92},
+  year    = {2021},
+  doi     = {10.1145/3458723}
+}
+```
+
+### Note on upstream attribution
+
+CSI-Bench, XRF55, and SignFi remain under their original licenses. Whenever CSI portions of those datasets are used, the **original** dataset papers (above) **must** be cited in addition to CSI-Text.

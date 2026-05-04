@@ -444,20 +444,6 @@ All methods are selected via `configs/method/<name>.yaml` and `method=` in the e
 
 ---
 
-## Citation
-
-```bibtex
-@misc{zhu2026csitext,
-  title        = {CSI-TextBench: A Dataset and Benchmark for Language-Grounded Ambient Sensing Perception},
-  author       = {Zhu, Guozhen and others},
-  year         = {2026},
-  note         = {NeurIPS 2026 E\&D Track},
-  howpublished = {\url{https://github.com/guozhen-jenn-zhu/CSI-Text-Multimodal-Alignment}}
-}
-```
-
----
-
 ## License
 
 - **Code** (this repository): **MIT** -- see [`LICENSE`](LICENSE).
