@@ -1,8 +1,24 @@
-import numpy as np
-import h5py
-from pathlib import Path
+"""
+Reshape XRF55 .h5 samples from (270, 1000) into the canonical (270, 1000, 1) layout
+and reorder the antenna/subcarrier axis with the documented stride-3 permutation.
+
+By default reads from ``<xrf55_root>/organized`` and writes the reshaped .h5 files
+into ``<xrf55_root>`` (mirrored relative paths). Pass ``--in-place`` to overwrite
+the source files instead, or ``--target`` to send the output elsewhere.
+
+The XRF55 root defaults to ``<repo_root>/data/Dataset/xrf55/action_recognition``;
+override with ``--root`` or ``$XRF55_ROOT`` (see ``_paths.py``).
+"""
+
+import argparse
 import shutil
+from pathlib import Path
+
+import h5py
 import matplotlib.pyplot as plt
+import numpy as np
+
+from _paths import organized_dir, xrf55_root
 
 def reorder_indices_270():
     """
@@ -231,57 +247,70 @@ def reshape_directory(source_dir, target_dir=None, in_place=True, recursive=True
     print(f"  Errors: {error_count} files")
     print("=" * 60)
 
-if __name__ == "__main__":
-    import sys
-    
-    # Check for test mode
-    test_mode = "--test" in sys.argv or "-t" in sys.argv
-    in_place_mode = "--in-place" in sys.argv or "-i" in sys.argv
-    no_plot_mode = "--no-plot" in sys.argv
-    
-    # Source directory
-    source_directory = r"E:\XRF55\XRF55V2"
-    
-    # Target directory - save to downstream folder with same directory structure
-    target_directory = r"E:\XRF55\XRF55V3"
-    
-    # Default: save to downstream folder (not in-place), plot first file is True
-    default_in_place = False
-    default_plot_first = True
-    
+def main(root=None, source=None, target=None, in_place=False, no_plot=False, test=False):
+    print(f"XRF55 root: {xrf55_root(root)}")
+    source_directory = str(Path(source).expanduser().resolve()) if source else str(organized_dir(root))
+    target_directory = str(Path(target).expanduser().resolve()) if target else str(xrf55_root(root))
+
+    plot_first = not no_plot
+
     print("=" * 60)
     print("Reshaping .h5 files")
-    if test_mode:
+    if test:
         print("TEST MODE: Processing only the first file")
-    if in_place_mode:
+    if in_place:
         print("IN-PLACE MODE: Will overwrite original files")
-    elif not test_mode:
+    elif not test:
         print(f"TARGET MODE: Will save to {target_directory}")
-    if (not no_plot_mode and default_plot_first) or test_mode:
+    if plot_first or test:
         print("PLOTTING: Will plot the first reshaped file")
     print("=" * 60)
     print()
-    
-    if test_mode:
+
+    if test:
         # Test with a single file
         source_path = Path(source_directory)
         h5_files = list(source_path.rglob("*.h5"))
         if h5_files:
             test_file = h5_files[0]
             print(f"Testing with file: {test_file}\n")
-            # For test mode, save to target directory maintaining structure
-            if target_directory and not default_in_place:
+            if target_directory and not in_place:
                 relative_path = test_file.relative_to(source_path)
                 test_output = Path(target_directory) / relative_path
             else:
                 test_output = None
-            reshape_h5_data(test_file, test_output, in_place=default_in_place, plot_first=True)
+            reshape_h5_data(test_file, test_output, in_place=in_place, plot_first=True)
             print("Test reshaping successful!")
         else:
             print("No .h5 files found for testing!")
     else:
-        # Reshape all .h5 files
-        use_in_place = in_place_mode if in_place_mode else default_in_place
-        use_plot = default_plot_first if not no_plot_mode else False
-        reshape_directory(source_directory, target_directory, in_place=use_in_place, 
-                         recursive=True, plot_first=use_plot)
+        reshape_directory(
+            source_directory,
+            target_directory if not in_place else None,
+            in_place=in_place,
+            recursive=True,
+            plot_first=plot_first,
+        )
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Reshape XRF55 .h5 files: add channel axis and reorder the 270-dim axis.")
+    parser.add_argument("--source", default=None, help="Source dir of .h5 files (default: <xrf55_root>/organized)")
+    parser.add_argument("--target", default=None, help="Output dir for reshaped .h5 files (default: <xrf55_root>); ignored with --in-place")
+    parser.add_argument("--in-place", "-i", action="store_true", help="Overwrite the source .h5 files instead of writing to --target")
+    parser.add_argument("--no-plot", action="store_true", help="Do not show the matplotlib visualization of the first file")
+    parser.add_argument("--test", "-t", action="store_true", help="Process only the first .h5 file (smoke test)")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="XRF55 root directory (overrides $XRF55_ROOT and the default <repo_root>/data/Dataset/xrf55/action_recognition)",
+    )
+    args = parser.parse_args()
+    main(
+        root=args.root,
+        source=args.source,
+        target=args.target,
+        in_place=args.in_place,
+        no_plot=args.no_plot,
+        test=args.test,
+    )

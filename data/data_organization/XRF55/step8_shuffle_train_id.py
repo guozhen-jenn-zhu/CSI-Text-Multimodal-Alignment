@@ -1,6 +1,20 @@
+"""
+Shuffle ``train_id.json`` in place (or to ``--output``) so the training loader
+does not iterate samples in a deterministic user/activity/repeat order.
+
+Default: ``<xrf55_root>/splits/train_id.json``, seed 42.
+
+The XRF55 root defaults to ``<repo_root>/data/Dataset/xrf55/action_recognition``;
+override with ``--root`` or ``$XRF55_ROOT`` (see ``_paths.py``).
+"""
+
+import argparse
 import json
 import random
 from pathlib import Path
+
+from _paths import splits_dir, xrf55_root
+
 
 def shuffle_train_id(train_id_file, seed=None, output_file=None):
     """
@@ -50,26 +64,24 @@ def shuffle_train_id(train_id_file, seed=None, output_file=None):
         print(f"  {i}. {id_}")
     print("=" * 60)
 
+
+def main(root=None, train_id=None, seed=42, output=None):
+    print(f"XRF55 root: {xrf55_root(root)}")
+    train_id_path = str(Path(train_id).expanduser().resolve()) if train_id else str(splits_dir(root) / "train_id.json")
+    output_path = str(Path(output).expanduser().resolve()) if output else None
+    shuffle_train_id(train_id_path, seed=seed, output_file=output_path)
+
+
 if __name__ == "__main__":
-    import sys
-
-    # Path to train_id.json
-    train_id_path = r"E:\XRF55\XRF55V2\splits\train_id.json"
-
-    # Optional: seed for reproducibility (e.g. 42). Set to None for different shuffle each run.
-    random_seed = 42
-
-    # Optional: write to a different file. None = overwrite train_id.json
-    output_path = None
-
-    # Allow overrides from command line
-    # Usage: python shuffle_train_id.py [train_id.json] [seed]
-    if len(sys.argv) > 1:
-        train_id_path = sys.argv[1]
-    if len(sys.argv) > 2:
-        try:
-            random_seed = int(sys.argv[2])
-        except ValueError:
-            random_seed = None
-
-    shuffle_train_id(train_id_path, seed=random_seed, output_file=output_path)
+    parser = argparse.ArgumentParser(description="Shuffle train_id.json so the loader does not see samples in a deterministic order.")
+    parser.add_argument("--train-id", default=None, help="Path to train_id.json (default: <xrf55_root>/splits/train_id.json)")
+    parser.add_argument("--output", default=None, help="Where to write the shuffled JSON (default: overwrite the input file)")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility (default: 42; pass a negative value for a non-deterministic shuffle)")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="XRF55 root directory (overrides $XRF55_ROOT and the default <repo_root>/data/Dataset/xrf55/action_recognition)",
+    )
+    args = parser.parse_args()
+    seed_value = args.seed if args.seed is not None and args.seed >= 0 else None
+    main(root=args.root, train_id=args.train_id, seed=seed_value, output=args.output)

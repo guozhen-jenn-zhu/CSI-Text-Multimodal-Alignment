@@ -1,5 +1,19 @@
+"""
+Append the env_<N> suffix to XRF55 filenames after step1's reorganization.
+
+Looks for ``user_XX/act_XX/env_<N>/<user>_<act>_<repeat>.{h5,npy}`` and renames each
+file in place to ``user<XX>_act<XX>_repeat<XX>_env<N>.{h5,npy}``. Already-renamed
+files are skipped.
+
+Default source: ``<xrf55_root>/organized``. Override with ``--source``,
+``--root`` or ``$XRF55_ROOT`` (see ``_paths.py``).
+"""
+
+import argparse
 import re
 from pathlib import Path
+
+from _paths import organized_dir, xrf55_root
 
 def parse_and_rename_file(file_path, base_dir):
     """
@@ -156,13 +170,23 @@ def rename_files_in_directory(source_dir, dry_run=False):
     
     print("=" * 60)
 
-if __name__ == "__main__":
-    import sys
-    
-    # Check for dry run mode
-    dry_run = "--dry-run" in sys.argv or "-d" in sys.argv
-    
-    # Source directory
-    source_directory = r"E:\XRF55\XRF55V2"
-    
+def main(root=None, source=None, dry_run=False):
+    print(f"XRF55 root: {xrf55_root(root)}")
+    if source is not None:
+        source_directory = str(Path(source).expanduser().resolve())
+    else:
+        source_directory = str(organized_dir(root))
     rename_files_in_directory(source_directory, dry_run=dry_run)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Rename XRF55 files in place to embed the env_<N> tag in the filename.")
+    parser.add_argument("--source", default=None, help="Directory to walk for renames (default: <xrf55_root>/organized)")
+    parser.add_argument("--dry-run", "-d", action="store_true", help="Print planned renames without touching disk")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="XRF55 root directory (overrides $XRF55_ROOT and the default <repo_root>/data/Dataset/xrf55/action_recognition)",
+    )
+    args = parser.parse_args()
+    main(root=args.root, source=args.source, dry_run=args.dry_run)

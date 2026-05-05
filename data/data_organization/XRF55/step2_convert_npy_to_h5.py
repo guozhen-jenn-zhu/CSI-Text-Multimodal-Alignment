@@ -1,7 +1,23 @@
-import numpy as np
-import h5py
+"""
+Convert XRF55 .npy files into .h5 files while preserving array shape and dtype.
+
+By default the source is taken from the organized layout produced by step1, falling
+back to the raw dump if no organized files are present:
+    --source : <xrf55_root>/organized  (else <xrf55_root>/raw)
+    --target : same directory tree as source (each .npy gets a sibling .h5)
+
+The XRF55 root defaults to ``<repo_root>/data/Dataset/xrf55/action_recognition``;
+override with ``--root`` or ``$XRF55_ROOT`` (see ``_paths.py``).
+"""
+
+import argparse
 from pathlib import Path
-import os
+
+import h5py
+import numpy as np
+
+from _paths import organized_dir, raw_dir, xrf55_root
+
 
 def convert_npy_to_h5(npy_path, h5_path):
     """
@@ -97,41 +113,38 @@ def convert_directory(source_dir, target_dir=None, recursive=True):
         if idx % 100 == 0:
             print(f"Progress: {idx}/{total_files} files converted\n")
 
-if __name__ == "__main__":
-    import sys
-    
-    # Check for test mode (convert only first file)
-    test_mode = "--test" in sys.argv or "-t" in sys.argv
-    
-    # You can modify these paths as needed
-    # Check organized directory first, then fall back to dataset directory
-    organized_dir = Path(r"E:\XRF55\organized")
-    dataset_dir = Path(r"E:\XRF55\dataset")
-    
-    # Determine which directory to use
-    if organized_dir.exists() and list(organized_dir.rglob("*.npy")):
-        source_directory = str(organized_dir)
-        print("Using organized directory as source")
-    elif dataset_dir.exists() and list(dataset_dir.rglob("*.npy")):
-        source_directory = str(dataset_dir)
-        print("Using dataset directory as source")
+
+def main(root=None, source=None, target=None, test=False):
+    print(f"XRF55 root: {xrf55_root(root)}")
+
+    if source is not None:
+        source_directory = str(Path(source).expanduser().resolve())
     else:
-        source_directory = str(organized_dir)  # Default
-        print("Warning: No .npy files found in expected locations")
-    
-    # Save .h5 files in the same directory structure (replace .npy with .h5)
-    target_directory = None  # Set to None to save in same location, or specify a different path
-    
+        # Check organized directory first, then fall back to raw directory
+        organized_path = organized_dir(root)
+        raw_path = raw_dir(root)
+        if organized_path.exists() and any(organized_path.rglob("*.npy")):
+            source_directory = str(organized_path)
+            print("Using organized directory as source")
+        elif raw_path.exists() and any(raw_path.rglob("*.npy")):
+            source_directory = str(raw_path)
+            print("Using raw directory as source")
+        else:
+            source_directory = str(organized_path)  # Default
+            print("Warning: No .npy files found in expected locations")
+
+    target_directory = str(Path(target).expanduser().resolve()) if target else None
+
     print("=" * 60)
     print("Converting .npy files to .h5 format")
-    if test_mode:
+    if test:
         print("TEST MODE: Converting only the first file")
     print("=" * 60)
     print(f"Source directory: {source_directory}")
     print(f"Target directory: {target_directory if target_directory else 'Same as source (replacing .npy with .h5)'}")
     print()
-    
-    if test_mode:
+
+    if test:
         # Test with a single file
         source_path = Path(source_directory)
         npy_files = list(source_path.rglob("*.npy"))
@@ -147,7 +160,21 @@ if __name__ == "__main__":
         # Convert all .npy files
         # Set target_directory=None to save .h5 files in the same location as .npy files
         convert_directory(source_directory, target_directory, recursive=True)
-    
+
     print("=" * 60)
     print("Conversion complete!")
     print("=" * 60)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Convert XRF55 .npy files to .h5 (one .h5 per .npy, same shape).")
+    parser.add_argument("--source", default=None, help="Source dir containing .npy files (default: <xrf55_root>/organized, fallback <xrf55_root>/raw)")
+    parser.add_argument("--target", default=None, help="Target dir for .h5 files (default: alongside the .npy files)")
+    parser.add_argument("--test", "-t", action="store_true", help="Convert only the first .npy file (smoke test)")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="XRF55 root directory (overrides $XRF55_ROOT and the default <repo_root>/data/Dataset/xrf55/action_recognition)",
+    )
+    args = parser.parse_args()
+    main(root=args.root, source=args.source, target=args.target, test=args.test)

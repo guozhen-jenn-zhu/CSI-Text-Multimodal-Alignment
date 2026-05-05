@@ -1,7 +1,26 @@
+"""
+Generate ``train_id.json`` / ``val_id.json`` / ``test_id.json`` from the XRF55
+metadata CSV using the official repeat-based protocol::
+
+    train: repeats 1-12
+    val:   repeats 13-14
+    test:  repeats 15-20
+
+Defaults:
+    --metadata : <xrf55_root>/metadata/sample_metadata.csv
+    --output   : <xrf55_root>/splits
+
+The XRF55 root defaults to ``<repo_root>/data/Dataset/xrf55/action_recognition``;
+override with ``--root`` or ``$XRF55_ROOT`` (see ``_paths.py``).
+"""
+
+import argparse
 import csv
 import json
-from pathlib import Path
 from collections import defaultdict
+from pathlib import Path
+
+from _paths import metadata_csv_path, splits_dir, xrf55_root
 
 def generate_splits(metadata_file, output_dir):
     """
@@ -123,11 +142,21 @@ def generate_splits(metadata_file, output_dir):
     print("Split generation complete!")
     print("=" * 60)
 
-if __name__ == "__main__":
-    # Metadata file path
-    metadata_file = r"E:\XRF55\downstream\metadata\sample_metadata.csv"
-    
-    # Output directory for split files
-    output_directory = r"E:\XRF55\downstream\splits"
-    
+def main(root=None, metadata=None, output=None):
+    print(f"XRF55 root: {xrf55_root(root)}")
+    metadata_file = str(Path(metadata).expanduser().resolve()) if metadata else str(metadata_csv_path(root))
+    output_directory = str(Path(output).expanduser().resolve()) if output else str(splits_dir(root))
     generate_splits(metadata_file, output_directory)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Generate XRF55 train/val/test split JSON files from sample_metadata.csv.")
+    parser.add_argument("--metadata", default=None, help="Path to the metadata CSV (default: <xrf55_root>/metadata/sample_metadata.csv)")
+    parser.add_argument("--output", default=None, help="Directory to write the *_id.json split files into (default: <xrf55_root>/splits)")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="XRF55 root directory (overrides $XRF55_ROOT and the default <repo_root>/data/Dataset/xrf55/action_recognition)",
+    )
+    args = parser.parse_args()
+    main(root=args.root, metadata=args.metadata, output=args.output)

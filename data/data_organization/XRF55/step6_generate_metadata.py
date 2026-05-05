@@ -1,6 +1,24 @@
+"""
+Build the per-sample metadata CSV from the canonical XRF55 .h5 layout.
+
+Walks every ``.h5`` under the root, parses ``user<XX>_act<XX>_repeat<XX>_env<N>``
+filenames (with a fallback to the older ``<user>_<act>_<repeat>`` form plus folder
+hints), and emits ``<output>/sample_metadata.csv`` with one row per sample.
+
+Defaults:
+    --source : <xrf55_root>            (the canonical .h5 tree from step5)
+    --output : <xrf55_root>/metadata
+
+The XRF55 root defaults to ``<repo_root>/data/Dataset/xrf55/action_recognition``;
+override with ``--root`` or ``$XRF55_ROOT`` (see ``_paths.py``).
+"""
+
+import argparse
 import csv
 import re
 from pathlib import Path
+
+from _paths import METADATA_DIRNAME, METADATA_FILENAME, xrf55_root
 
 def parse_file_info(file_path, base_dir):
     """
@@ -114,7 +132,7 @@ def generate_metadata(source_dir, output_dir):
     ))
     
     # Write to CSV
-    output_file = output_path / "metadata.csv"
+    output_file = output_path / METADATA_FILENAME
     
     # Define column order
     columns = ['id', 'file_path', 'subject', 'user', 'activity', 'environment', 'device', 'repeat', 'label']
@@ -139,11 +157,21 @@ def generate_metadata(source_dir, output_dir):
     print("Metadata generation complete!")
     print("=" * 60)
 
-if __name__ == "__main__":
-    # Source directory containing .h5 files
-    source_directory = r"E:\XRF55\downstream"
-    
-    # Output directory for metadata
-    output_directory = r"E:\XRF55\downstream\metadata"
-    
+def main(root=None, source=None, output=None):
+    print(f"XRF55 root: {xrf55_root(root)}")
+    source_directory = str(Path(source).expanduser().resolve()) if source else str(xrf55_root(root))
+    output_directory = str(Path(output).expanduser().resolve()) if output else str(xrf55_root(root) / METADATA_DIRNAME)
     generate_metadata(source_directory, output_directory)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=f"Generate the {METADATA_FILENAME} metadata CSV from the XRF55 .h5 layout.")
+    parser.add_argument("--source", default=None, help="Directory containing the canonical .h5 tree (default: <xrf55_root>)")
+    parser.add_argument("--output", default=None, help=f"Directory to write {METADATA_FILENAME} into (default: <xrf55_root>/metadata)")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="XRF55 root directory (overrides $XRF55_ROOT and the default <repo_root>/data/Dataset/xrf55/action_recognition)",
+    )
+    args = parser.parse_args()
+    main(root=args.root, source=args.source, output=args.output)

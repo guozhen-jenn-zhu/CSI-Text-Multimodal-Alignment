@@ -1,5 +1,20 @@
+"""
+Move every .npy out of the organized tree into a parallel ``organized_npy`` tree
+so the canonical layout retains only the .h5 outputs from step2.
+
+Defaults:
+    --source : <xrf55_root>/organized
+    --target : <xrf55_root>/organized_npy
+
+The XRF55 root defaults to ``<repo_root>/data/Dataset/xrf55/action_recognition``;
+override with ``--root`` or ``$XRF55_ROOT`` (see ``_paths.py``).
+"""
+
+import argparse
 import shutil
 from pathlib import Path
+
+from _paths import organized_dir, organized_npy_dir, xrf55_root
 
 def move_npy_files(source_dir, target_dir):
     """
@@ -73,12 +88,21 @@ def move_npy_files(source_dir, target_dir):
     print(f"  .h5 files in source: {len(remaining_h5)}")
     print(f"  .npy files in target: {len(list(target_path.rglob('*.npy')))}")
 
-if __name__ == "__main__":
-    # Source directory (where .npy and .h5 files currently are)
-    source_directory = r"E:\XRF55\organized"
-    
-    # Target directory (where .npy files will be moved)
-    target_directory = r"E:\XRF55\organized_npy"
-    
-    # Move all .npy files
+def main(root=None, source=None, target=None):
+    print(f"XRF55 root: {xrf55_root(root)}")
+    source_directory = str(Path(source).expanduser().resolve()) if source else str(organized_dir(root))
+    target_directory = str(Path(target).expanduser().resolve()) if target else str(organized_npy_dir(root))
     move_npy_files(source_directory, target_directory)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Split the organized XRF55 tree by moving .npy files into a sibling directory.")
+    parser.add_argument("--source", default=None, help="Mixed .npy/.h5 source dir (default: <xrf55_root>/organized)")
+    parser.add_argument("--target", default=None, help="Destination dir for the .npy files (default: <xrf55_root>/organized_npy)")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="XRF55 root directory (overrides $XRF55_ROOT and the default <repo_root>/data/Dataset/xrf55/action_recognition)",
+    )
+    args = parser.parse_args()
+    main(root=args.root, source=args.source, target=args.target)
