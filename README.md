@@ -51,6 +51,21 @@ mkdir -p data/Dataset
 
 To use a different location, set `DATA_ROOT` when invoking the pipeline (see [Quick start](#quick-start-run-the-full-experiment-pipeline)) or override `dataset_config.data_root=<path>` on the training command line.
 
+#### Data layout and organization
+
+The release archive bundles different artifacts per source dataset, depending on what we are allowed to redistribute:
+
+| Source dataset | What the release ships | Action required |
+|---|---|---|
+| **CSI-Bench** | Full processed dataset: per-sample H5 + `metadata/` + `splits/` + `pair_registry.json` for every task | None — extract under `data/Dataset/csibench/` |
+| **XRF55** | Full processed dataset: per-sample H5 + `metadata/` + `splits/` + `pair_registry.json` | None — extract under `data/Dataset/xrf55/` |
+| **SignFi** | Metadata only: `metadata/sample_metadata.csv`, `splits/{train,val,test}_id.json`, `pair_registry.json` | Obtain the raw SignFi `.mat` files from the upstream SignFi release and run the reorganization pipeline in [`data/data_organization/SignFi/`](data/data_organization/SignFi/README.md) — see the folder README for step-by-step instructions |
+
+The [`data/data_organization/`](data/data_organization/) folder contains the numbered scripts that produced the released layout for **SignFi** and **XRF55**, each with its own README:
+
+- [`data/data_organization/SignFi/README.md`](data/data_organization/SignFi/README.md) — required for SignFi (raw `.mat` → per-sample `.h5` + metadata + splits).
+- [`data/data_organization/XRF55/README.md`](data/data_organization/XRF55/README.md) — optional; XRF55 is shipped pre-organized and only needs these scripts when rebuilding from a fresh upstream pull.
+
 ### On-disk layout
 
 After download, `data/Dataset/` should look like this:
@@ -380,7 +395,8 @@ CSI-Text-Multimodal-Alignment/
 │   ├── multitask_dataset.py           # Multi-task Dataset wrapper for joint training
 │   ├── pair_registry.py               # Many-to-many CSI-text registry
 │   ├── preprocessing/                 # Per-dataset loaders + unified CSI normalization
-│   └── text_generation/               # Templates, LLM paraphrase, pair registry builder
+│   ├── text_generation/               # Templates, LLM paraphrase, pair registry builder
+│   └── data_organization/             # Reorganization scripts that produced the released layout (SignFi/, XRF55/); SignFi steps are required to reformat raw .mat files before training
 ├── models/
 │   ├── encoders/                      # CSI encoders (ResNet-1D, PatchTST, ViT-1D, AM-FM), text encoders, projections
 │   └── alignment/                     # 6 alignment method implementations
