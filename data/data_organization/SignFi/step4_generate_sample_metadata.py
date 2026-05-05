@@ -3,21 +3,27 @@ Generate sample_metadata.csv for SignFi sub_Human data, in the same format as XR
 
 Columns: id, file_path, subject, activity, environment, device, label
 - id: same as the .h5 filename (without extension), e.g. csid_dataset_home_276_1_277
-- file_path: relative to SignFi root, e.g. ./sub_Human/dataset_home_276/sign001/csid_dataset_home_276_1_277.h5
+- file_path: relative to the SignFi root, e.g. ./sub_Human/dataset_home_276/sign001/csid_dataset_home_276_1_277.h5
 - subject: Human
 - activity: sign label (from sign folder)
 - environment: dataset name (e.g. dataset_home_276)
 - device: WiFi
 - label: from the sign folder name (sign001 -> 1, sign005 -> 5, sign276 -> 276)
+
+The SignFi root defaults to ``<repo_root>/data/Dataset/signfi/sign_recognition``;
+override with ``--root`` or ``$SIGNFI_ROOT`` (see ``_paths.py``).
 """
 
+import argparse
 import csv
 import os
 
-# Paths
-SIGNFI_ROOT = r"F:\SignFi\SignFi"
-SUB_HUMAN_DIR = "sub_Human"
-OUTPUT_CSV = os.path.join(SIGNFI_ROOT, "metadata", "sample_metadata.csv")
+from _paths import (
+    SUB_HUMAN_DIRNAME,
+    metadata_csv_path,
+    signfi_root,
+    sub_human_dir,
+)
 
 COLUMNS = ["id", "file_path", "subject", "activity", "environment", "device", "label"]
 
@@ -32,19 +38,19 @@ def _label_from_sign_folder(sub_name):
         return None
 
 
-def collect_rows():
-    sub_human = os.path.join(SIGNFI_ROOT, SUB_HUMAN_DIR)
-    if not os.path.isdir(sub_human):
+def collect_rows(root=None):
+    sub_human = sub_human_dir(root)
+    if not sub_human.is_dir():
         raise FileNotFoundError(f"sub_Human not found: {sub_human}")
 
     rows = []
     for dataset_name in sorted(os.listdir(sub_human)):
-        dataset_path = os.path.join(sub_human, dataset_name)
-        if not os.path.isdir(dataset_path) or dataset_name.startswith("sign"):
+        dataset_path = sub_human / dataset_name
+        if not dataset_path.is_dir() or dataset_name.startswith("sign"):
             continue
         for sub_name in sorted(os.listdir(dataset_path)):
-            sub_path = os.path.join(dataset_path, sub_name)
-            if not os.path.isdir(sub_path) or not sub_name.startswith("sign"):
+            sub_path = dataset_path / sub_name
+            if not sub_path.is_dir() or not sub_name.startswith("sign"):
                 continue
             label = _label_from_sign_folder(sub_name)
             if label is None:
@@ -52,11 +58,11 @@ def collect_rows():
             for fname in sorted(os.listdir(sub_path)):
                 if not fname.endswith(".h5"):
                     continue
-                rel_dir = os.path.join(SUB_HUMAN_DIR, dataset_name, sub_name)
+                rel_dir = os.path.join(SUB_HUMAN_DIRNAME, dataset_name, sub_name)
                 rel_path = os.path.join(rel_dir, fname).replace("\\", "/")
                 file_path = "./" + rel_path
-                sample_id = os.path.splitext(fname)[0]  # filename without .h5
-                row = {
+                sample_id = os.path.splitext(fname)[0]
+                rows.append({
                     "id": sample_id,
                     "file_path": file_path,
                     "subject": "Human",
@@ -64,20 +70,28 @@ def collect_rows():
                     "environment": dataset_name,
                     "device": "WiFi",
                     "label": label,
-                }
-                rows.append(row)
+                })
     return rows
 
 
-def main():
-    rows = collect_rows()
-    os.makedirs(os.path.dirname(OUTPUT_CSV), exist_ok=True)
-    with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
+def main(root=None):
+    print(f"SignFi root: {signfi_root(root)}")
+    rows = collect_rows(root)
+    output_csv = metadata_csv_path(root)
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_csv, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=COLUMNS)
         w.writeheader()
         w.writerows(rows)
-    print(f"Written {len(rows)} rows to {OUTPUT_CSV}")
+    print(f"Written {len(rows)} rows to {output_csv}")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Generate SignFi sample_metadata.csv from the organized sub_Human layout.")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="SignFi root directory (overrides $SIGNFI_ROOT and the default <repo_root>/data/Dataset/signfi/sign_recognition)",
+    )
+    args = parser.parse_args()
+    main(root=args.root)

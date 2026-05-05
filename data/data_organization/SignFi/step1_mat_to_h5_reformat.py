@@ -7,6 +7,12 @@ Reformat SignFi .mat data to .h5 files.
 4. Take amplitude (abs), transpose to [90, 200], add channel dim -> [90, 200, 1]
 5. Save amplitude arrays and labels to .h5
 6. Labels: use in-file labels when present, map indices to names via sign_labels.csv
+
+Output layout (default):
+    <signfi_root>/sub_Human/<basename>/<prefix>_<basename>_<label>_<sample>.h5
+
+where ``<signfi_root>`` defaults to ``<repo_root>/data/Dataset/signfi/sign_recognition``
+and can be overridden via ``--root`` or the ``SIGNFI_ROOT`` env var (see ``_paths.py``).
 """
 
 import os
@@ -16,7 +22,8 @@ import scipy.io
 import h5py
 import csv
 
-# Default input .mat file (hard-coded)
+from _paths import signfi_root, sub_human_dir
+
 DEFAULT_MAT_FILE = "dataset_lab_276_ul.mat"
 LABELS_CSV = "sign_labels.csv"
 
@@ -101,6 +108,7 @@ def reformat_mat_to_h5(
     mat_path=None,
     out_dir=None,
     labels_csv_path=None,
+    root=None,
 ):
     if mat_path is None:
         mat_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), DEFAULT_MAT_FILE)
@@ -109,12 +117,14 @@ def reformat_mat_to_h5(
 
     base_dir = os.path.dirname(os.path.abspath(mat_path))
     original_basename = os.path.splitext(os.path.basename(mat_path))[0]
-    # Default: create a folder named after the .mat (e.g. dataset_home_276/)
+    # Default: drop the per-sample H5 files into <signfi_root>/sub_Human/<basename>/
+    # so that step2 picks them up directly.
     if out_dir is None:
-        out_dir = os.path.join(base_dir, original_basename)
+        out_dir = str(sub_human_dir(root) / original_basename)
     os.makedirs(out_dir, exist_ok=True)
     if labels_csv_path is None:
         labels_csv_path = os.path.join(base_dir, LABELS_CSV)
+    print(f"SignFi root: {signfi_root(root)}")
 
     print(f"Loading {mat_path} ...")
     mat = scipy.io.loadmat(mat_path)
@@ -167,8 +177,22 @@ def reformat_mat_to_h5(
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Reformat SignFi .mat to .h5 (one file per sample: original_filename_label_index.h5)")
-    parser.add_argument("--mat", default=None, help=f"Input .mat file (default: {DEFAULT_MAT_FILE})")
-    parser.add_argument("--out-dir", default=None, help="Output directory for .h5 files (default: folder named after .mat, e.g. dataset_home_276/)")
+    parser.add_argument("--mat", default=None, help=f"Input .mat file (default: {DEFAULT_MAT_FILE} adjacent to this script)")
+    parser.add_argument(
+        "--out-dir",
+        default=None,
+        help="Output directory for the .h5 files (default: <signfi_root>/sub_Human/<basename>/)",
+    )
     parser.add_argument("--labels-csv", default=None, help=f"Label names CSV (default: {LABELS_CSV})")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="SignFi root directory (overrides $SIGNFI_ROOT and the default <repo_root>/data/Dataset/signfi/sign_recognition)",
+    )
     args = parser.parse_args()
-    reformat_mat_to_h5(mat_path=args.mat, out_dir=args.out_dir, labels_csv_path=args.labels_csv)
+    reformat_mat_to_h5(
+        mat_path=args.mat,
+        out_dir=args.out_dir,
+        labels_csv_path=args.labels_csv,
+        root=args.root,
+    )

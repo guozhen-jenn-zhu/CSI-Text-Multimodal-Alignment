@@ -1,21 +1,26 @@
 """
-Remove the label_index dataset from all .h5 files under F:\\SignFi\\SignFi\\sub_Human.
+Remove the label_index dataset from all .h5 files under <signfi_root>/sub_Human.
 
 Rewrites each file that contains label_index by copying all other datasets into
 a temp file, then replacing the original. Keeps "amplitude" and any other keys.
+
+The SignFi root defaults to ``<repo_root>/data/Dataset/signfi/sign_recognition``;
+override with ``--root`` or ``$SIGNFI_ROOT`` (see ``_paths.py``).
 """
 
+import argparse
 import os
 import tempfile
 
 import h5py
 
-SUB_HUMAN = r"F:\SignFi\SignFi\sub_Human"
+from _paths import signfi_root, sub_human_dir
+
 KEY_TO_REMOVE = "label_index"
 
 
 def iter_h5_paths(root):
-    """Yield (dataset_dir, sign_dir, filepath) for each .h5 under root."""
+    """Yield filepath for each .h5 under <root>/<dataset>/sign***/."""
     if not os.path.isdir(root):
         return
     for d in sorted(os.listdir(root)):
@@ -58,13 +63,15 @@ def remove_label_index(path):
         raise
 
 
-def main():
-    if not os.path.isdir(SUB_HUMAN):
-        raise SystemExit(f"Not found: {SUB_HUMAN}")
+def main(root=None):
+    sub_human = str(sub_human_dir(root))
+    print(f"SignFi root: {signfi_root(root)}")
+    if not os.path.isdir(sub_human):
+        raise SystemExit(f"sub_Human folder not found: {sub_human}")
 
     total = 0
     changed = 0
-    for path in iter_h5_paths(SUB_HUMAN):
+    for path in iter_h5_paths(sub_human):
         total += 1
         try:
             if remove_label_index(path):
@@ -73,5 +80,13 @@ def main():
             print(f"  Error {path}: {e}")
     print(f"Processed {total:,} .h5 files, removed label_index from {changed:,}.")
 
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Strip the label_index dataset from every SignFi .h5 file.")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="SignFi root directory (overrides $SIGNFI_ROOT and the default <repo_root>/data/Dataset/signfi/sign_recognition)",
+    )
+    args = parser.parse_args()
+    main(root=args.root)

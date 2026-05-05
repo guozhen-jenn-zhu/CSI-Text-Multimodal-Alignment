@@ -2,20 +2,23 @@
 Move .h5 files into subfolders by sign label for all dataset folders under sub_Human.
 
 Example:
-  F:\\SignFi\\SignFi\\sub_Human\\dataset_home_276\\csid_dataset_home_276_1_277.h5
-  -> F:\\SignFi\\SignFi\\sub_Human\\dataset_home_276\\sign001\\csid_dataset_home_276_1_277.h5
+  <signfi_root>/sub_Human/dataset_home_276/csid_dataset_home_276_1_277.h5
+  -> <signfi_root>/sub_Human/dataset_home_276/sign001/csid_dataset_home_276_1_277.h5
 
-  F:\\SignFi\\SignFi\\sub_Human\\dataset_home_276\\csid_dataset_home_276_18_570.h5
-  -> F:\\SignFi\\SignFi\\sub_Human\\dataset_home_276\\sign018\\csid_dataset_home_276_18_570.h5
+  <signfi_root>/sub_Human/dataset_home_276/csid_dataset_home_276_18_570.h5
+  -> <signfi_root>/sub_Human/dataset_home_276/sign018/csid_dataset_home_276_18_570.h5
 
 Filename format: {prefix}_{basename}_{label}_{sample}.h5  ->  move to sign{label:03d}/
+
+The SignFi root defaults to ``<repo_root>/data/Dataset/signfi/sign_recognition``;
+override with ``--root`` or ``$SIGNFI_ROOT`` (see ``_paths.py``).
 """
 
+import argparse
 import os
 import shutil
 
-# Root folder containing dataset subfolders (dataset_home_276, dataset_lab_150, etc.)
-SUB_HUMAN_ROOT = r"F:\SignFi\SignFi\sub_Human"
+from _paths import signfi_root, sub_human_dir
 
 
 def parse_label_from_h5_filename(filename):
@@ -24,12 +27,11 @@ def parse_label_from_h5_filename(filename):
     """
     if not filename.endswith(".h5"):
         return None
-    stem = filename[:-4]  # drop .h5
+    stem = filename[:-4]
     parts = stem.split("_")
     if len(parts) < 2:
         return None
     try:
-        # label is second-to-last, sample is last
         return int(parts[-2])
     except ValueError:
         return None
@@ -63,23 +65,23 @@ def organize_by_label(dataset_dir):
     return moved, errors
 
 
-def main():
-    root = os.path.normpath(SUB_HUMAN_ROOT)
-    if not os.path.isdir(root):
-        raise SystemExit(f"Root folder not found: {root}")
+def main(root=None):
+    sub_human = sub_human_dir(root)
+    print(f"SignFi root: {signfi_root(root)}")
+    if not sub_human.is_dir():
+        raise SystemExit(f"sub_Human folder not found: {sub_human}")
 
     dataset_dirs = [
-        d for d in os.listdir(root)
-        if os.path.isdir(os.path.join(root, d)) and not d.startswith("sign")
+        d for d in os.listdir(sub_human)
+        if (sub_human / d).is_dir() and not d.startswith("sign")
     ]
     if not dataset_dirs:
-        print(f"No dataset subfolders found under {root}")
+        print(f"No dataset subfolders found under {sub_human}")
         return
 
     total_moved = 0
     for d in sorted(dataset_dirs):
-        dataset_path = os.path.join(root, d)
-        n, errs = organize_by_label(dataset_path)
+        n, errs = organize_by_label(str(sub_human / d))
         total_moved += n
         if n or errs:
             status = f"moved {n} files" if n else "no files to move"
@@ -95,4 +97,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Organize SignFi .h5 files into sign{NNN}/ folders by label.")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="SignFi root directory (overrides $SIGNFI_ROOT and the default <repo_root>/data/Dataset/signfi/sign_recognition)",
+    )
+    args = parser.parse_args()
+    main(root=args.root)
