@@ -1,5 +1,7 @@
 """Run the full benchmark: methods x encoders x tasks/datasets."""
 
+from __future__ import annotations
+
 import argparse
 import itertools
 import subprocess
@@ -31,13 +33,21 @@ def _build_cmd(
     encoder: str,
     num_gpus: int,
     extra_overrides: list[str],
+    data_root: str | None = None,
 ) -> list[str]:
     overrides = [
         f"dataset={dataset}",
         f"task={task}",
         f"method={method}",
         f"csi_encoder.name={encoder}",
-    ] + extra_overrides
+    ]
+    # Mirror scripts/pipelines/train_local.sh: data_root must already include
+    # the source_prefix layer (e.g. data/Dataset/csibench). Without this the
+    # trainer falls back to the SageMaker default "/data/fm_downstream" which
+    # does not exist on local checkouts.
+    if data_root:
+        overrides.append(f"dataset_config.data_root={data_root}/{dataset}")
+    overrides += extra_overrides
 
     if num_gpus > 1:
         cmd = [
@@ -67,6 +77,14 @@ def main() -> None:
     parser.add_argument("--methods", nargs="+", default=METHODS, choices=METHODS)
     parser.add_argument("--encoders", nargs="+", default=ENCODERS, choices=ENCODERS)
     parser.add_argument("--num_gpus", type=int, default=0, help="0 = auto-detect")
+    parser.add_argument(
+        "--data_root",
+        type=str,
+        default="data/Dataset",
+        help="Root data directory holding csibench/, xrf55/, signfi/ subfolders "
+             "(default: data/Dataset, matching the released local layout). "
+             "Pass an empty string to fall back to the in-config default.",
+    )
     parser.add_argument("--override", nargs="*", default=[])
     parser.add_argument("--dry_run", action="store_true", help="Print commands without executing")
     args = parser.parse_args()
@@ -91,7 +109,16 @@ def main() -> None:
     results = []
     for i, (dataset, task, method, encoder) in enumerate(experiments, 1):
         label = f"[{i}/{len(experiments)}] {dataset}/{task}/{method}/{encoder}"
-        cmd = _build_cmd(args.config, dataset, task, method, encoder, num_gpus, args.override)
+        cmd = _build_cmd(
+            args.config,
+            dataset,
+            task,
+            method,
+            encoder,
+            num_gpus,
+            args.override,
+            data_root=args.data_root or None,
+        )
 
         if args.dry_run:
             print(f"{label}: {' '.join(cmd)}")

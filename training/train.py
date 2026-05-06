@@ -127,7 +127,9 @@ class Trainer:
         training_cfg = config["training"]
         _set_seed(training_cfg.get("seed", 42) + rank)
 
-        self.device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(
+            f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu"
+        )
         self.max_epochs = int(training_cfg["max_epochs"])
         self.patience = int(training_cfg.get("early_stopping_patience", 15))
         self.grad_clip = float(training_cfg.get("grad_clip", 1.0))
@@ -140,7 +142,9 @@ class Trainer:
             self.amp_dtype = torch.bfloat16
         else:
             self.amp_dtype = torch.float16
-        self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp and self.amp_dtype == torch.float16)
+        self.scaler = torch.amp.GradScaler(
+            "cuda", enabled=self.use_amp and self.amp_dtype == torch.float16
+        )
 
         if self.is_main:
             self._setup_logging()
@@ -158,6 +162,7 @@ class Trainer:
         if s3_cfg.get("enabled", False) and self.is_main:
             try:
                 from utils.s3_sync import S3Syncer
+
                 self.s3_syncer = S3Syncer(
                     bucket=s3_cfg["bucket"],
                     prefix=s3_cfg.get("prefix", "Multimodal_CSI_Text"),
@@ -169,8 +174,12 @@ class Trainer:
         if self.is_main:
             logger.info(
                 "Trainer ready on %s | DDP=%s world_size=%d | AMP=%s dtype=%s | accum=%d",
-                self.device, self.distributed, self.world_size,
-                self.use_amp, self.amp_dtype, self.accumulation_steps,
+                self.device,
+                self.distributed,
+                self.world_size,
+                self.use_amp,
+                self.amp_dtype,
+                self.accumulation_steps,
             )
 
     def _setup_logging(self) -> None:
@@ -194,6 +203,7 @@ class Trainer:
         self.wandb_run = None
         if self.use_wandb:
             import wandb
+
             self.wandb_run = wandb.init(
                 project=log_cfg.get("project_name", "csi-text-alignment"),
                 config=self.config,
@@ -217,9 +227,17 @@ class Trainer:
             "dropout": float(enc_cfg.get("dropout", 0.0)),
         }
         if enc_cfg.get("name", "resnet18_1d").lower() == "amfm":
-            for k in ("emb_dim", "encoder_heads", "encoder_layers",
-                       "encoder_ff_dim", "encoder_dropout", "c_out",
-                       "freq_out", "max_len", "in_channels"):
+            for k in (
+                "emb_dim",
+                "encoder_heads",
+                "encoder_layers",
+                "encoder_ff_dim",
+                "encoder_dropout",
+                "c_out",
+                "freq_out",
+                "max_len",
+                "in_channels",
+            ):
                 if k in enc_cfg:
                     enc_kwargs[k] = enc_cfg[k]
             if "pretrained_path" in enc_cfg:
@@ -245,6 +263,7 @@ class Trainer:
         has_precomputed = self.config.get("text_embeddings_path") is not None
         if has_precomputed:
             import h5py
+
             emb_path = self.config["text_embeddings_path"]
             with h5py.File(emb_path, "r") as f:
                 first_key = next(iter(f.keys()))
@@ -252,10 +271,13 @@ class Trainer:
             if self.is_main:
                 logger.info(
                     "Using precomputed text embeddings (dim=%d) from %s",
-                    text_embed_dim, emb_path,
+                    text_embed_dim,
+                    emb_path,
                 )
         else:
-            self.text_encoder = build_text_encoder(name=txt_cfg.get("name", "clip_vit_b32"))
+            self.text_encoder = build_text_encoder(
+                name=txt_cfg.get("name", "clip_vit_b32")
+            )
             text_embed_dim = self.text_encoder.embed_dim
 
         proj_dropout = float(proj_cfg.get("dropout", 0.0))
@@ -299,7 +321,9 @@ class Trainer:
 
         param_count = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         if self.is_main:
-            logger.info("Model: %s | trainable params: %s", method_name, f"{param_count:,}")
+            logger.info(
+                "Model: %s | trainable params: %s", method_name, f"{param_count:,}"
+            )
 
     @staticmethod
     def _extract_model_kwargs(
@@ -307,7 +331,12 @@ class Trainer:
     ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {}
         temp = loss_cfg.get("temperature")
-        methods_with_temperature = {"clip_infonce", "siglip", "language_bind", "centrobind"}
+        methods_with_temperature = {
+            "clip_infonce",
+            "siglip",
+            "language_bind",
+            "centrobind",
+        }
         if temp is not None and method_name in methods_with_temperature:
             kwargs["temperature"] = temp
 
@@ -343,7 +372,7 @@ class Trainer:
         the on-disk layout used by ``scripts/pipelines/train_local.sh``.
         """
         ds_cfg = self.config.get("dataset_config", {})
-        default_data_root = "/data/fm_downstream"
+        default_data_root = "/data/Dataset"
         data_root = ds_cfg.get("data_root", default_data_root)
         task_name = self.config.get("task", "har")
         has_custom_data_root = data_root != default_data_root
@@ -448,10 +477,16 @@ class Trainer:
 
         if not self._encoder_frozen and encoder_lr_scale != 1.0:
             encoder_ids = {id(p) for p in model.csi_encoder.parameters()}
-            encoder_params = [p for p in model.parameters()
-                              if p.requires_grad and id(p) in encoder_ids]
-            other_params = [p for p in model.parameters()
-                            if p.requires_grad and id(p) not in encoder_ids]
+            encoder_params = [
+                p
+                for p in model.parameters()
+                if p.requires_grad and id(p) in encoder_ids
+            ]
+            other_params = [
+                p
+                for p in model.parameters()
+                if p.requires_grad and id(p) not in encoder_ids
+            ]
             param_groups = [
                 {"params": encoder_params, "lr": base_lr * encoder_lr_scale},
                 {"params": other_params, "lr": base_lr},
@@ -459,7 +494,9 @@ class Trainer:
             if self.is_main:
                 logger.info(
                     "Using encoder_lr_scale=%.3f  (encoder LR=%.2e, other LR=%.2e)",
-                    encoder_lr_scale, base_lr * encoder_lr_scale, base_lr,
+                    encoder_lr_scale,
+                    base_lr * encoder_lr_scale,
+                    base_lr,
                 )
         else:
             param_groups = [p for p in self.model.parameters() if p.requires_grad]
@@ -509,7 +546,9 @@ class Trainer:
             if (step + 1) % self.accumulation_steps == 0:
                 if self.grad_clip > 0:
                     self.scaler.unscale_(self.optimizer)
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), self.grad_clip
+                    )
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
                 self.optimizer.zero_grad(set_to_none=True)
@@ -518,11 +557,19 @@ class Trainer:
             num_batches += 1
 
             global_step = epoch * len(self.train_loader) + step
-            if self.is_main and self.log_every > 0 and global_step % self.log_every == 0:
+            if (
+                self.is_main
+                and self.log_every > 0
+                and global_step % self.log_every == 0
+            ):
                 lr = self.optimizer.param_groups[0]["lr"]
                 logger.info(
                     "epoch %d  step %d/%d  loss=%.4f  lr=%.2e",
-                    epoch, step, len(self.train_loader), loss.item() * self.accumulation_steps, lr,
+                    epoch,
+                    step,
+                    len(self.train_loader),
+                    loss.item() * self.accumulation_steps,
+                    lr,
                 )
 
         avg_loss = total_loss / max(num_batches, 1)
@@ -575,7 +622,9 @@ class Trainer:
         if self.is_main:
             logger.info(
                 "Starting training: %d epochs, patience %d, accum %d",
-                self.max_epochs, self.patience, self.accumulation_steps,
+                self.max_epochs,
+                self.patience,
+                self.accumulation_steps,
             )
 
         for epoch in range(self.start_epoch, self.max_epochs):
@@ -584,7 +633,9 @@ class Trainer:
             train_metrics = self.train_epoch(epoch)
             val_metrics = self.validate()
 
-            if not isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            if not isinstance(
+                self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau
+            ):
                 self.scheduler.step()
             else:
                 self.scheduler.step(val_metrics["val_loss"])
@@ -597,26 +648,36 @@ class Trainer:
                 lr = self.optimizer.param_groups[0]["lr"]
                 logger.info(
                     "Epoch %d/%d  train_loss=%.4f  val_loss=%.4f  lr=%.2e  time=%.1fs",
-                    epoch + 1, self.max_epochs,
-                    train_metrics["train_loss"], val_metrics["val_loss"],
-                    lr, elapsed,
+                    epoch + 1,
+                    self.max_epochs,
+                    train_metrics["train_loss"],
+                    val_metrics["val_loss"],
+                    lr,
+                    elapsed,
                 )
 
                 all_metrics = {**train_metrics, **val_metrics, "epoch": epoch, "lr": lr}
                 if self.use_wandb and self.wandb_run is not None:
                     import wandb
+
                     wandb.log(all_metrics, step=epoch)
 
                 if improved:
                     best_metrics = all_metrics.copy()
                     self.save_checkpoint(
                         f"best_ep{epoch+1}_vl{val_metrics['val_loss']:.4f}.pt",
-                        epoch, val_metrics["val_loss"],
+                        epoch,
+                        val_metrics["val_loss"],
                     )
-                    logger.info("  -> new best val_loss=%.4f -- checkpoint saved", val_metrics["val_loss"])
+                    logger.info(
+                        "  -> new best val_loss=%.4f -- checkpoint saved",
+                        val_metrics["val_loss"],
+                    )
 
                 if (epoch + 1) % 30 == 0:
-                    self.save_checkpoint(f"epoch_{epoch + 1}.pt", epoch, val_metrics["val_loss"])
+                    self.save_checkpoint(
+                        f"epoch_{epoch + 1}.pt", epoch, val_metrics["val_loss"]
+                    )
 
             if improved:
                 self.best_val_loss = val_metrics["val_loss"]
@@ -631,7 +692,8 @@ class Trainer:
                 if self.is_main:
                     logger.info(
                         "Early stopping at epoch %d (patience %d exhausted)",
-                        epoch + 1, self.patience,
+                        epoch + 1,
+                        self.patience,
                     )
                 break
 
@@ -642,6 +704,7 @@ class Trainer:
 
             if self.use_wandb and self.wandb_run is not None:
                 import wandb
+
                 wandb.finish()
 
             if self._s3_executor is not None:
@@ -659,7 +722,9 @@ class Trainer:
 
         path = self.checkpoint_dir / filename
         model_state = (
-            self.model.module.state_dict() if self.distributed else self.model.state_dict()
+            self.model.module.state_dict()
+            if self.distributed
+            else self.model.state_dict()
         )
         torch.save(
             {
@@ -690,18 +755,21 @@ class Trainer:
                 # always points to the latest best checkpoint.
                 logger.debug(
                     "symlink to %s failed (%s); falling back to copy",
-                    filename, exc,
+                    filename,
+                    exc,
                 )
                 shutil.copy2(path, best_link)
 
             if self.s3_syncer is not None and self._s3_executor is not None:
                 upload_path = str(path)
                 s3_key = f"checkpoints/{self.checkpoint_dir.name}/best.pt"
+
                 def _bg_upload(p=upload_path, k=s3_key):
                     try:
                         self.s3_syncer.upload_checkpoint(p, key_name=k)
                     except Exception as exc:
                         logger.warning("S3 checkpoint upload failed: %s", exc)
+
                 self._s3_futures.append(self._s3_executor.submit(_bg_upload))
 
     def _flush_s3_uploads(self) -> None:
@@ -731,7 +799,9 @@ class Trainer:
         if self.is_main:
             logger.info(
                 "Loaded checkpoint %s (epoch %d, val_loss=%.4f)",
-                path, ckpt["epoch"], ckpt["val_loss"],
+                path,
+                ckpt["epoch"],
+                ckpt["val_loss"],
             )
 
 
@@ -743,15 +813,21 @@ class Trainer:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train CSI-Text alignment model")
     parser.add_argument(
-        "--config", type=str, default="configs/experiment/default.yaml",
+        "--config",
+        type=str,
+        default="configs/experiment/default.yaml",
         help="Path to experiment YAML config",
     )
     parser.add_argument(
-        "--override", nargs="*", default=[],
+        "--override",
+        nargs="*",
+        default=[],
         help="Override config values as key.subkey=value",
     )
     parser.add_argument(
-        "--resume", type=str, default=None,
+        "--resume",
+        type=str,
+        default=None,
         help="Path to checkpoint to resume training from",
     )
     args = parser.parse_args()

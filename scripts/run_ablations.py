@@ -1,5 +1,7 @@
 """Run ablation studies with proper config overrides."""
 
+from __future__ import annotations
+
 import argparse
 import itertools
 import subprocess
@@ -59,8 +61,22 @@ ABLATIONS = {
 }
 
 
-def _build_cmd(config: str, overrides: dict, num_gpus: int, base_overrides: list[str]) -> list[str]:
-    override_args = [f"{k}={v}" for k, v in overrides.items()] + base_overrides
+def _build_cmd(
+    config: str,
+    overrides: dict,
+    num_gpus: int,
+    base_overrides: list[str],
+    dataset: str | None = None,
+    data_root: str | None = None,
+) -> list[str]:
+    override_args = [f"{k}={v}" for k, v in overrides.items()]
+    # Mirror scripts/pipelines/train_local.sh: data_root must already include
+    # the source_prefix layer (e.g. data/Dataset/csibench). Without this the
+    # trainer falls back to the SageMaker default "/data/fm_downstream" which
+    # does not exist on local checkouts.
+    if data_root and dataset:
+        override_args.append(f"dataset_config.data_root={data_root}/{dataset}")
+    override_args += base_overrides
 
     if num_gpus > 1:
         cmd = [
@@ -89,6 +105,21 @@ def main() -> None:
         help="Which ablation(s) to run",
     )
     parser.add_argument("--num_gpus", type=int, default=0)
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="csibench",
+        help="Dataset key whose source_prefix is appended to --data_root "
+             "(default: csibench, matching configs/experiment/default.yaml).",
+    )
+    parser.add_argument(
+        "--data_root",
+        type=str,
+        default="data/Dataset",
+        help="Root data directory holding csibench/, xrf55/, signfi/ subfolders "
+             "(default: data/Dataset, matching the released local layout). "
+             "Pass an empty string to fall back to the in-config default.",
+    )
     parser.add_argument("--override", nargs="*", default=[])
     parser.add_argument("--dry_run", action="store_true")
     args = parser.parse_args()
@@ -110,7 +141,14 @@ def main() -> None:
 
         for i, overrides in enumerate(abl["sweep"], 1):
             label = f"  [{i}/{len(abl['sweep'])}] {overrides}"
-            cmd = _build_cmd(args.config, overrides, num_gpus, args.override)
+            cmd = _build_cmd(
+                args.config,
+                overrides,
+                num_gpus,
+                args.override,
+                dataset=args.dataset,
+                data_root=args.data_root or None,
+            )
 
             if args.dry_run:
                 print(f"{label}: {' '.join(cmd)}")
