@@ -1,5 +1,5 @@
 name: signfi
-source_prefix: ""
+source_prefix: signfi   # sub-path under DATA_ROOT (released layout: data/Dataset/signfi/)
 
 tasks:
   sign_recognition:

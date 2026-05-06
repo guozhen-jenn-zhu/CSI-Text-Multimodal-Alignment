@@ -1,19 +1,29 @@
 """Generate text pair registries for all datasets and tasks.
 
-This script is meant for running **locally on SageMaker** (or any machine
-where the source data is mounted under a ``data_root`` directory).  It reads
-``label_mapping.json`` from each task's metadata folder and passes the
-``task_name`` to ``TextGenerator`` so that task-local class IDs are used.
+Reads each task's ``metadata/label_mapping.json`` and ``metadata/sample_metadata.csv``
+under ``--data_root`` and writes a ``pair_registry.json`` per task into
+``--output_dir`` (default: ``data/generated_texts/``). The registry maps every
+sample ID to its candidate captions for the alignment training loop.
 
-For building the dataset from a laptop via S3, use ``build_dataset_from_s3.py``
-instead.
+The default ``--data_root`` is ``data/Dataset`` (the released local layout that
+ships with the Kaggle archive). Override with ``--data_root <path>`` if the data
+lives elsewhere, or pass ``--data_root /home/sagemaker-user/Multimodal_CSI_Text/Dataset``
+on a SageMaker host.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
 import logging
 import sys
 from pathlib import Path
+
+# Ensure the project root is on sys.path so `data.*` / `utils.*` imports work
+# when this script is invoked as `python scripts/generate_all_texts.py`.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 import yaml
 
@@ -156,8 +166,12 @@ def main() -> None:
         "--tasks", nargs="+", default=None,
         help="Process only these tasks (default: all)",
     )
-    parser.add_argument("--data_root", type=str, default="/data/fm_downstream",
-                        help="Root data directory (SageMaker mount)")
+    parser.add_argument(
+        "--data_root",
+        type=str,
+        default="data/Dataset",
+        help="Root data directory holding csibench/, xrf55/, signfi/ subfolders (default: data/Dataset, matching the released local layout)",
+    )
     parser.add_argument("--output_dir", type=str, default="data/generated_texts")
     parser.add_argument("--use_llm", action="store_true")
     parser.add_argument("--llm_model", type=str, default="gpt-4o-mini")
