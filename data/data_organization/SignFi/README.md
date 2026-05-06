@@ -2,7 +2,7 @@
 
 This folder contains the numbered scripts that turn the upstream **SignFi** `.mat` release into the per-sample H5 layout expected by every config/dataloader in this repository.
 
-The released archive on Hugging Face Hub / Kaggle ships **only the metadata and splits** for SignFi (`metadata/sample_metadata.csv`, `splits/{train,val,test}_id.json`, `pair_registry.json`); you have to fetch the raw signal yourself and run the scripts here to materialize the per-sample `.h5` files.
+The released [Multimodal_CSI_Text dataset](https://www.kaggle.com/datasets/b43cfe263881c7804a6b840820452782b4a0db647abdc94adcc982fdc5a72aab) on Kaggle ships **only the metadata and splits** for SignFi (`metadata/sample_metadata.csv`, `splits/{train,val,test}_id.json`, `pair_registry.json`); you have to fetch the raw signal yourself and run the scripts here to materialize the per-sample `.h5` files.
 
 > CSI-Bench and XRF55 are shipped fully processed and do not need this pipeline. See [`../XRF55/README.md`](../XRF55/README.md) if you ever want to rebuild the XRF55 layout from a fresh upstream pull.
 

@@ -34,10 +34,9 @@ The benchmark harmonizes **three public CSI corpora** into a common tensor forma
 
 ### Download
 
-The processed CSI-Text dataset will be published on the Hugging Face Hub and mirrored on Kaggle. URLs will be finalized at publication time:
+The processed CSI-Text dataset is published on Kaggle:
 
-- **Hugging Face Hub** (primary): [link]
-- **Kaggle** (mirror): [link]
+- **Kaggle**: [Multimodal_CSI_Text dataset](https://www.kaggle.com/datasets/b43cfe263881c7804a6b840820452782b4a0db647abdc94adcc982fdc5a72aab)
 
 Download the archive and extract it under `data/Dataset/` at the repository root (this is the default `DATA_ROOT` used by every config and pipeline script):
 

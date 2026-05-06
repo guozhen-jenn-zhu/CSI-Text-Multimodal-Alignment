@@ -2,7 +2,7 @@
 
 This folder contains the numbered scripts that turn the upstream **XRF55** release into the per-sample H5 layout expected by every config/dataloader in this repository.
 
-> **Most users do not need to run these scripts.** The release archive on Hugging Face Hub / Kaggle ships the XRF55 dataset already fully processed (per-sample `.h5` + `metadata/` + `splits/` + `pair_registry.json`) — just extract it under `data/Dataset/xrf55/` and you're done. The pipeline below is kept for transparency and so the released layout can be rebuilt from a fresh upstream pull.
+> **Most users do not need to run these scripts.** The released [Multimodal_CSI_Text dataset](https://www.kaggle.com/datasets/b43cfe263881c7804a6b840820452782b4a0db647abdc94adcc982fdc5a72aab) on Kaggle ships the XRF55 dataset already fully processed (per-sample `.h5` + `metadata/` + `splits/` + `pair_registry.json`) — just extract it under `data/Dataset/xrf55/` and you're done. The pipeline below is kept for transparency and so the released layout can be rebuilt from a fresh upstream pull.
 >
 > See [`../SignFi/README.md`](../SignFi/README.md) for the SignFi pipeline, which **does** need to be run because we are not allowed to redistribute the SignFi raw signal.
 
