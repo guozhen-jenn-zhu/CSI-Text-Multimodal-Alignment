@@ -340,7 +340,7 @@ python scripts/run_ablations.py --dry_run
 
 ```bash
 python scripts/run_evaluate.py \
-    --checkpoint checkpoints/csibench/clip_infonce/best.pt \
+    --checkpoint runs/checkpoints/csibench-har-clip_infonce/best.pt \
     --config configs/experiment/default.yaml \
     --output_dir results/csibench_clip_infonce
 ```
@@ -353,23 +353,6 @@ python scripts/run_evaluate.py \
 | `--eval_protocols` | `zero_shot ambient_qa visualization` | Which protocols to run |
 | `--output_dir` | `results` | Output directory for metrics and figures |
 
-Available evaluation protocols: `zero_shot`, `ambient_qa`, `cross_task`, `cross_dataset`, `visualization`. The default set runs `zero_shot`, `ambient_qa`, and `visualization`; `cross_task` and `cross_dataset` are still supported but must be requested explicitly (the orchestrator drives them via the dedicated Priority 2A/2B stages).
-
-**Examples:**
-
-```bash
-# Run only zero-shot evaluation
-python scripts/run_evaluate.py \
-    --checkpoint best.pt --config configs/experiment/default.yaml \
-    --eval_protocols zero_shot
-
-# Run all protocols for a SigLIP model
-python scripts/run_evaluate.py \
-    --checkpoint checkpoints/csibench/siglip/best.pt \
-    --config configs/experiment/default.yaml \
-    --override method=siglip \
-    --output_dir results/siglip_eval
-```
 
 Output files:
 - `metrics.json` -- all evaluation metrics in a single JSON
@@ -422,7 +405,7 @@ CSI-Text-Multimodal-Alignment/
 │   ├── pipelines/                     # End-to-end orchestrators (run_local_experiments.sh, train_local.sh; SageMaker variants under pipelines/sagemaker_scripts/)
 │   ├── baselines/                     # Supervised baselines (no text alignment)
 │   └── paper_experiments/             # Paper-reproducibility extras (multi-seed, held-out, template-count, open-vocab)
-├── croissant_rai_CSI_Text.json                     # Croissant metadata for the released dataset
+├── croissant.json                     # Croissant metadata for the released dataset
 ├── requirements.txt
 └── LICENSE
 ```
