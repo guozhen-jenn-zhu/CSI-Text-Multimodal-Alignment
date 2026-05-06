@@ -6,6 +6,12 @@
     "column": "cr:column",
     "conformsTo": "dct:conformsTo",
     "cr": "http://mlcommons.org/croissant/",
+    "data": {
+      "@id": "cr:data",
+      "@type": "@json"
+    },
+    "dataBiases": "cr:dataBiases",
+    "dataCollection": "cr:dataCollection",
     "dataType": {
       "@id": "cr:dataType",
       "@type": "@vocab"
@@ -13,169 +19,1450 @@
     "dct": "http://purl.org/dc/terms/",
     "extract": "cr:extract",
     "field": "cr:field",
+    "fileProperty": "cr:fileProperty",
     "fileObject": "cr:fileObject",
     "fileSet": "cr:fileSet",
     "format": "cr:format",
     "includes": "cr:includes",
+    "isEnumeration": "cr:isEnumeration",
+    "isLiveDataset": "cr:isLiveDataset",
+    "jsonPath": "cr:jsonPath",
     "key": "cr:key",
+    "md5": "cr:md5",
+    "parentField": "cr:parentField",
+    "path": "cr:path",
+    "personalSensitiveInformation": "cr:personalSensitiveInformation",
     "recordSet": "cr:recordSet",
+    "references": "cr:references",
+    "regex": "cr:regex",
     "repeated": "cr:repeated",
+    "replace": "cr:replace",
     "sc": "https://schema.org/",
-    "source": "cr:source"
+    "separator": "cr:separator",
+    "source": "cr:source",
+    "subField": "cr:subField",
+    "transform": "cr:transform",
+    "wd": "https://www.wikidata.org/wiki/",
+    "rai": "http://mlcommons.org/croissant/RAI/",
+    "prov": "http://www.w3.org/ns/prov#"
   },
-  "@type": "sc:Dataset",
-  "name": "CSI-Text Multimodal Alignment Benchmark",
-  "description": "The first CSI-Text multimodal dataset with many-to-many pairing for benchmarking language-grounded ambient perception from WiFi signals.",
-  "version": "1.0.0",
-  "license": "https://creativecommons.org/licenses/by-sa/4.0/",
-  "url": "https://github.com/guozhen-jenn-zhu/CSI-Text-Multimodal-Alignment",
+  "alternateName": "",
   "conformsTo": "http://mlcommons.org/croissant/1.0",
-  "creator": {
-    "@type": "sc:Organization",
-    "name": "CSI-Text Multimodal Alignment authors"
+  "license": {
+    "@type": "sc:CreativeWork",
+    "name": "Attribution-NonCommercial-NoDerivatives 4.0 International (CC BY-NC-ND 4.0)",
+    "url": "https://creativecommons.org/licenses/by-nc-nd/4.0/"
   },
-  "citeAs": "@misc{csi_text_2026,\n  title={{CSI-Text}: A Multimodal Benchmark for Language-Grounded WiFi CSI},\n  author={Zhu, Guozhen and collaborators},\n  year={2026},\n  howpublished={\\url{https://github.com/guozhen-jenn-zhu/CSI-Text-Multimodal-Alignment}}\n}",
   "distribution": [
     {
+      "contentUrl": "https://www.kaggle.com/api/v1/datasets/download/signalz/multimodal-csi-text?datasetVersionNumber=1",
+      "contentSize": "58.979 GB",
+      "md5": "5tUOa7YMvFf/zD0L9dP3jQ==",
+      "encodingFormat": "application/zip",
+      "@id": "archive.zip",
       "@type": "cr:FileObject",
-      "@id": "source_repository",
-      "name": "CSI-Text_Multimodal_Alignment_GitHub",
-      "description": "Training code, configs, preprocessing, and evaluation protocols.",
-      "contentUrl": "https://github.com/guozhen-jenn-zhu/CSI-Text-Multimodal-Alignment",
-      "encodingFormat": "git+https",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      "name": "archive.zip",
+      "description": "Archive containing all the contents of the Multimodal_CSI_Text dataset"
     },
     {
-      "@type": "cr:FileObject",
-      "@id": "huggingface_dataset_card",
-      "name": "HuggingFace_Hub_dataset",
-      "description": "Dataset card and release artifacts on the Hugging Face Hub (URL finalized at publication).",
-      "contentUrl": "https://huggingface.co/datasets/guozhen-jenn-zhu/csi-text-multimodal-alignment",
-      "encodingFormat": "text/html",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      "includes": "*.json",
+      "containedIn": {
+        "@id": "archive.zip"
+      },
+      "encodingFormat": "application/json",
+      "@id": "application-json_fileset",
+      "@type": "cr:FileSet",
+      "name": "application/json files",
+      "description": "application/json files contained in archive.zip"
     },
     {
+      "contentUrl": "Dataset/csibench/fall_detection/metadata/sample_metadata.csv",
+      "containedIn": {
+        "@id": "archive.zip"
+      },
+      "encodingFormat": "text/csv",
+      "@id": "fall_detection/metadata/sample_metadata.csv_fileobject",
       "@type": "cr:FileObject",
-      "@id": "kaggle_dataset_page",
-      "name": "Kaggle_dataset",
-      "description": "Mirror and metadata on Kaggle (URL finalized at publication).",
-      "contentUrl": "https://www.kaggle.com/datasets/guozhenzhu/csi-text-multimodal-alignment",
-      "encodingFormat": "text/html",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      "name": "sample_metadata.csv"
     },
     {
+      "contentUrl": "Dataset/csibench/motion_source/metadata/sample_metadata.csv",
+      "containedIn": {
+        "@id": "archive.zip"
+      },
+      "encodingFormat": "text/csv",
+      "@id": "motion_source/metadata/sample_metadata.csv_fileobject",
       "@type": "cr:FileObject",
-      "@id": "csi_text_pairs_jsonl",
-      "name": "csi_text_pairs.jsonl",
-      "description": "Line-delimited manifest of CSI-text records (columns referenced by the primary record set). Tensor values may be stored by reference to HDF5 in full releases.",
-      "contentUrl": "https://huggingface.co/datasets/guozhen-jenn-zhu/csi-text-multimodal-alignment/resolve/main/csi_text_pairs.jsonl",
-      "encodingFormat": "application/jsonlines",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      "name": "sample_metadata.csv"
+    },
+    {
+      "contentUrl": "Dataset/signfi/sign_recognition/metadata/sample_metadata.csv",
+      "containedIn": {
+        "@id": "archive.zip"
+      },
+      "encodingFormat": "text/csv",
+      "@id": "sign_recognition/metadata/sample_metadata.csv_fileobject",
+      "@type": "cr:FileObject",
+      "name": "sample_metadata.csv"
+    },
+    {
+      "contentUrl": "Dataset/xrf55/action_recognition/metadata/sample_metadata.csv",
+      "containedIn": {
+        "@id": "archive.zip"
+      },
+      "encodingFormat": "text/csv",
+      "@id": "action_recognition/metadata/sample_metadata.csv_fileobject",
+      "@type": "cr:FileObject",
+      "name": "sample_metadata.csv"
+    },
+    {
+      "contentUrl": "Dataset/csibench/multitask/har/metadata/sample_metadata.csv",
+      "containedIn": {
+        "@id": "archive.zip"
+      },
+      "encodingFormat": "text/csv",
+      "@id": "har/metadata/sample_metadata.csv_fileobject",
+      "@type": "cr:FileObject",
+      "name": "sample_metadata.csv"
+    },
+    {
+      "contentUrl": "Dataset/csibench/multitask/proximity/metadata/sample_metadata.csv",
+      "containedIn": {
+        "@id": "archive.zip"
+      },
+      "encodingFormat": "text/csv",
+      "@id": "proximity/metadata/sample_metadata.csv_fileobject",
+      "@type": "cr:FileObject",
+      "name": "sample_metadata.csv"
+    },
+    {
+      "contentUrl": "Dataset/csibench/multitask/user_id/metadata/sample_metadata.csv",
+      "containedIn": {
+        "@id": "archive.zip"
+      },
+      "encodingFormat": "text/csv",
+      "@id": "user_id/metadata/sample_metadata.csv_fileobject",
+      "@type": "cr:FileObject",
+      "name": "sample_metadata.csv"
     }
   ],
   "recordSet": [
     {
-      "@type": "cr:RecordSet",
-      "@id": "csi_text_pairs",
-      "name": "csi_text_pairs",
-      "description": "Homogeneous records linking normalized CSI amplitude tensors to natural-language descriptions, task names, class indices, and source dataset identifiers.",
-      "key": {
-        "@id": "csi_text_pairs/sample_id"
-      },
       "field": [
         {
-          "@type": "cr:Field",
-          "@id": "csi_text_pairs/sample_id",
-          "name": "sample_id",
-          "description": "Stable identifier for one CSI segment in the unified schema.",
-          "dataType": "sc:Text",
+          "dataType": [
+            "sc:Text"
+          ],
           "source": {
             "fileObject": {
-              "@id": "csi_text_pairs_jsonl"
+              "@id": "fall_detection/metadata/sample_metadata.csv_fileobject"
             },
             "extract": {
-              "column": "sample_id"
+              "column": "id"
             }
-          }
+          },
+          "@id": "fall_detection/metadata/sample_metadata.csv/id",
+          "@type": "cr:Field",
+          "name": "id"
         },
         {
-          "@type": "cr:Field",
-          "@id": "csi_text_pairs/csi_data",
-          "name": "csi_data",
-          "description": "CSI amplitude tensor [C, K, T] (float32), or a reference path into bundled HDF5 when tensors are not inlined in JSONL.",
-          "dataType": "sc:Float",
-          "repeated": true,
+          "dataType": [
+            "sc:Text"
+          ],
           "source": {
             "fileObject": {
-              "@id": "csi_text_pairs_jsonl"
+              "@id": "fall_detection/metadata/sample_metadata.csv_fileobject"
             },
             "extract": {
-              "column": "csi_data"
+              "column": "file_path"
             }
-          }
+          },
+          "@id": "fall_detection/metadata/sample_metadata.csv/file_path",
+          "@type": "cr:Field",
+          "name": "file_path"
         },
         {
-          "@type": "cr:Field",
-          "@id": "csi_text_pairs/text_descriptions",
-          "name": "text_descriptions",
-          "description": "Associated text descriptions for many-to-many alignment (list of strings or newline-separated field in the manifest).",
-          "dataType": "sc:Text",
-          "repeated": true,
+          "dataType": [
+            "sc:Text"
+          ],
           "source": {
             "fileObject": {
-              "@id": "csi_text_pairs_jsonl"
+              "@id": "fall_detection/metadata/sample_metadata.csv_fileobject"
             },
             "extract": {
-              "column": "text_descriptions"
+              "column": "subject"
             }
-          }
+          },
+          "@id": "fall_detection/metadata/sample_metadata.csv/subject",
+          "@type": "cr:Field",
+          "name": "subject"
         },
         {
-          "@type": "cr:Field",
-          "@id": "csi_text_pairs/task",
-          "name": "task",
-          "description": "Sensing task name (e.g., har, sign_recognition, fall_detection).",
-          "dataType": "sc:Text",
+          "dataType": [
+            "sc:Text"
+          ],
           "source": {
             "fileObject": {
-              "@id": "csi_text_pairs_jsonl"
+              "@id": "fall_detection/metadata/sample_metadata.csv_fileobject"
             },
             "extract": {
-              "column": "task"
+              "column": "user"
             }
-          }
+          },
+          "@id": "fall_detection/metadata/sample_metadata.csv/user",
+          "@type": "cr:Field",
+          "name": "user"
         },
         {
-          "@type": "cr:Field",
-          "@id": "csi_text_pairs/label",
-          "name": "label",
-          "description": "Integer class label within the task.",
-          "dataType": "sc:Integer",
+          "dataType": [
+            "sc:Text"
+          ],
           "source": {
             "fileObject": {
-              "@id": "csi_text_pairs_jsonl"
+              "@id": "fall_detection/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "activity"
+            }
+          },
+          "@id": "fall_detection/metadata/sample_metadata.csv/activity",
+          "@type": "cr:Field",
+          "name": "activity"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "fall_detection/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "environment"
+            }
+          },
+          "@id": "fall_detection/metadata/sample_metadata.csv/environment",
+          "@type": "cr:Field",
+          "name": "environment"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "fall_detection/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "device"
+            }
+          },
+          "@id": "fall_detection/metadata/sample_metadata.csv/device",
+          "@type": "cr:Field",
+          "name": "device"
+        },
+        {
+          "dataType": [
+            "sc:Integer"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "fall_detection/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "session"
+            }
+          },
+          "@id": "fall_detection/metadata/sample_metadata.csv/session",
+          "@type": "cr:Field",
+          "name": "session"
+        },
+        {
+          "dataType": [
+            "sc:Boolean"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "fall_detection/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "is_multi_subject"
+            }
+          },
+          "@id": "fall_detection/metadata/sample_metadata.csv/is_multi_subject",
+          "@type": "cr:Field",
+          "name": "is_multi_subject"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "fall_detection/metadata/sample_metadata.csv_fileobject"
             },
             "extract": {
               "column": "label"
             }
-          }
+          },
+          "@id": "fall_detection/metadata/sample_metadata.csv/label",
+          "@type": "cr:Field",
+          "name": "label"
         },
         {
-          "@type": "cr:Field",
-          "@id": "csi_text_pairs/source_dataset",
-          "name": "source_dataset",
-          "description": "One of csibench, xrf55, or signfi.",
-          "dataType": "sc:Text",
+          "dataType": [
+            "sc:Text"
+          ],
           "source": {
             "fileObject": {
-              "@id": "csi_text_pairs_jsonl"
+              "@id": "fall_detection/metadata/sample_metadata.csv_fileobject"
             },
             "extract": {
-              "column": "source_dataset"
+              "column": "Difficulty"
             }
-          }
+          },
+          "@id": "fall_detection/metadata/sample_metadata.csv/Difficulty",
+          "@type": "cr:Field",
+          "name": "Difficulty"
         }
-      ]
+      ],
+      "@id": "fall_detection/metadata/sample_metadata.csv",
+      "@type": "cr:RecordSet",
+      "name": "sample_metadata.csv"
+    },
+    {
+      "field": [
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "motion_source/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "id"
+            }
+          },
+          "@id": "motion_source/metadata/sample_metadata.csv/id",
+          "@type": "cr:Field",
+          "name": "id"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "motion_source/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "file_path"
+            }
+          },
+          "@id": "motion_source/metadata/sample_metadata.csv/file_path",
+          "@type": "cr:Field",
+          "name": "file_path"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "motion_source/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "subject"
+            }
+          },
+          "@id": "motion_source/metadata/sample_metadata.csv/subject",
+          "@type": "cr:Field",
+          "name": "subject"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "motion_source/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "user"
+            }
+          },
+          "@id": "motion_source/metadata/sample_metadata.csv/user",
+          "@type": "cr:Field",
+          "name": "user"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "motion_source/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "activity"
+            }
+          },
+          "@id": "motion_source/metadata/sample_metadata.csv/activity",
+          "@type": "cr:Field",
+          "name": "activity"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "motion_source/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "environment"
+            }
+          },
+          "@id": "motion_source/metadata/sample_metadata.csv/environment",
+          "@type": "cr:Field",
+          "name": "environment"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "motion_source/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "device"
+            }
+          },
+          "@id": "motion_source/metadata/sample_metadata.csv/device",
+          "@type": "cr:Field",
+          "name": "device"
+        },
+        {
+          "dataType": [
+            "sc:Integer"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "motion_source/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "session"
+            }
+          },
+          "@id": "motion_source/metadata/sample_metadata.csv/session",
+          "@type": "cr:Field",
+          "name": "session"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "motion_source/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "label"
+            }
+          },
+          "@id": "motion_source/metadata/sample_metadata.csv/label",
+          "@type": "cr:Field",
+          "name": "label"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "motion_source/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "difficulty"
+            }
+          },
+          "@id": "motion_source/metadata/sample_metadata.csv/difficulty",
+          "@type": "cr:Field",
+          "name": "difficulty"
+        }
+      ],
+      "@id": "motion_source/metadata/sample_metadata.csv",
+      "@type": "cr:RecordSet",
+      "name": "sample_metadata.csv"
+    },
+    {
+      "field": [
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "sign_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "id"
+            }
+          },
+          "@id": "sign_recognition/metadata/sample_metadata.csv/id",
+          "@type": "cr:Field",
+          "name": "id"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "sign_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "file_path"
+            }
+          },
+          "@id": "sign_recognition/metadata/sample_metadata.csv/file_path",
+          "@type": "cr:Field",
+          "name": "file_path"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "sign_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "subject"
+            }
+          },
+          "@id": "sign_recognition/metadata/sample_metadata.csv/subject",
+          "@type": "cr:Field",
+          "name": "subject"
+        },
+        {
+          "dataType": [
+            "sc:Integer"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "sign_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "activity"
+            }
+          },
+          "@id": "sign_recognition/metadata/sample_metadata.csv/activity",
+          "@type": "cr:Field",
+          "name": "activity"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "sign_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "environment"
+            }
+          },
+          "@id": "sign_recognition/metadata/sample_metadata.csv/environment",
+          "@type": "cr:Field",
+          "name": "environment"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "sign_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "device"
+            }
+          },
+          "@id": "sign_recognition/metadata/sample_metadata.csv/device",
+          "@type": "cr:Field",
+          "name": "device"
+        },
+        {
+          "dataType": [
+            "sc:Integer"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "sign_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "label"
+            }
+          },
+          "@id": "sign_recognition/metadata/sample_metadata.csv/label",
+          "@type": "cr:Field",
+          "name": "label"
+        }
+      ],
+      "@id": "sign_recognition/metadata/sample_metadata.csv",
+      "@type": "cr:RecordSet",
+      "name": "sample_metadata.csv"
+    },
+    {
+      "field": [
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "action_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "id"
+            }
+          },
+          "@id": "action_recognition/metadata/sample_metadata.csv/id",
+          "@type": "cr:Field",
+          "name": "id"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "action_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "file_path"
+            }
+          },
+          "@id": "action_recognition/metadata/sample_metadata.csv/file_path",
+          "@type": "cr:Field",
+          "name": "file_path"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "action_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "subject"
+            }
+          },
+          "@id": "action_recognition/metadata/sample_metadata.csv/subject",
+          "@type": "cr:Field",
+          "name": "subject"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "action_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "user"
+            }
+          },
+          "@id": "action_recognition/metadata/sample_metadata.csv/user",
+          "@type": "cr:Field",
+          "name": "user"
+        },
+        {
+          "dataType": [
+            "sc:Integer"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "action_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "activity"
+            }
+          },
+          "@id": "action_recognition/metadata/sample_metadata.csv/activity",
+          "@type": "cr:Field",
+          "name": "activity"
+        },
+        {
+          "dataType": [
+            "sc:Integer"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "action_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "environment"
+            }
+          },
+          "@id": "action_recognition/metadata/sample_metadata.csv/environment",
+          "@type": "cr:Field",
+          "name": "environment"
+        },
+        {
+          "dataType": [
+            "sc:Integer"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "action_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "device"
+            }
+          },
+          "@id": "action_recognition/metadata/sample_metadata.csv/device",
+          "@type": "cr:Field",
+          "name": "device"
+        },
+        {
+          "dataType": [
+            "sc:Integer"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "action_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "repeat"
+            }
+          },
+          "@id": "action_recognition/metadata/sample_metadata.csv/repeat",
+          "@type": "cr:Field",
+          "name": "repeat"
+        },
+        {
+          "dataType": [
+            "sc:Integer"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "action_recognition/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "label"
+            }
+          },
+          "@id": "action_recognition/metadata/sample_metadata.csv/label",
+          "@type": "cr:Field",
+          "name": "label"
+        }
+      ],
+      "@id": "action_recognition/metadata/sample_metadata.csv",
+      "@type": "cr:RecordSet",
+      "name": "sample_metadata.csv"
+    },
+    {
+      "field": [
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "har/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "id"
+            }
+          },
+          "@id": "har/metadata/sample_metadata.csv/id",
+          "@type": "cr:Field",
+          "name": "id"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "har/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "file_path"
+            }
+          },
+          "@id": "har/metadata/sample_metadata.csv/file_path",
+          "@type": "cr:Field",
+          "name": "file_path"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "har/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "subject"
+            }
+          },
+          "@id": "har/metadata/sample_metadata.csv/subject",
+          "@type": "cr:Field",
+          "name": "subject"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "har/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "user"
+            }
+          },
+          "@id": "har/metadata/sample_metadata.csv/user",
+          "@type": "cr:Field",
+          "name": "user"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "har/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "activity"
+            }
+          },
+          "@id": "har/metadata/sample_metadata.csv/activity",
+          "@type": "cr:Field",
+          "name": "activity"
+        },
+        {
+          "dataType": [
+            "sc:Float"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "har/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "distance"
+            }
+          },
+          "@id": "har/metadata/sample_metadata.csv/distance",
+          "@type": "cr:Field",
+          "name": "distance"
+        },
+        {
+          "dataType": [
+            "sc:Integer"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "har/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "num_sub"
+            }
+          },
+          "@id": "har/metadata/sample_metadata.csv/num_sub",
+          "@type": "cr:Field",
+          "name": "num_sub"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "har/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "environment"
+            }
+          },
+          "@id": "har/metadata/sample_metadata.csv/environment",
+          "@type": "cr:Field",
+          "name": "environment"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "har/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "device"
+            }
+          },
+          "@id": "har/metadata/sample_metadata.csv/device",
+          "@type": "cr:Field",
+          "name": "device"
+        },
+        {
+          "dataType": [
+            "sc:Integer"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "har/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "session"
+            }
+          },
+          "@id": "har/metadata/sample_metadata.csv/session",
+          "@type": "cr:Field",
+          "name": "session"
+        },
+        {
+          "dataType": [
+            "sc:Boolean"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "har/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "is_multi_subject"
+            }
+          },
+          "@id": "har/metadata/sample_metadata.csv/is_multi_subject",
+          "@type": "cr:Field",
+          "name": "is_multi_subject"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "har/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "label"
+            }
+          },
+          "@id": "har/metadata/sample_metadata.csv/label",
+          "@type": "cr:Field",
+          "name": "label"
+        }
+      ],
+      "@id": "har/metadata/sample_metadata.csv",
+      "@type": "cr:RecordSet",
+      "name": "sample_metadata.csv"
+    },
+    {
+      "field": [
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "proximity/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "id"
+            }
+          },
+          "@id": "proximity/metadata/sample_metadata.csv/id",
+          "@type": "cr:Field",
+          "name": "id"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "proximity/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "file_path"
+            }
+          },
+          "@id": "proximity/metadata/sample_metadata.csv/file_path",
+          "@type": "cr:Field",
+          "name": "file_path"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "proximity/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "subject"
+            }
+          },
+          "@id": "proximity/metadata/sample_metadata.csv/subject",
+          "@type": "cr:Field",
+          "name": "subject"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "proximity/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "user"
+            }
+          },
+          "@id": "proximity/metadata/sample_metadata.csv/user",
+          "@type": "cr:Field",
+          "name": "user"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "proximity/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "activity"
+            }
+          },
+          "@id": "proximity/metadata/sample_metadata.csv/activity",
+          "@type": "cr:Field",
+          "name": "activity"
+        },
+        {
+          "dataType": [
+            "sc:Float"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "proximity/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "distance"
+            }
+          },
+          "@id": "proximity/metadata/sample_metadata.csv/distance",
+          "@type": "cr:Field",
+          "name": "distance"
+        },
+        {
+          "dataType": [
+            "sc:Integer"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "proximity/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "num_sub"
+            }
+          },
+          "@id": "proximity/metadata/sample_metadata.csv/num_sub",
+          "@type": "cr:Field",
+          "name": "num_sub"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "proximity/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "environment"
+            }
+          },
+          "@id": "proximity/metadata/sample_metadata.csv/environment",
+          "@type": "cr:Field",
+          "name": "environment"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "proximity/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "device"
+            }
+          },
+          "@id": "proximity/metadata/sample_metadata.csv/device",
+          "@type": "cr:Field",
+          "name": "device"
+        },
+        {
+          "dataType": [
+            "sc:Integer"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "proximity/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "session"
+            }
+          },
+          "@id": "proximity/metadata/sample_metadata.csv/session",
+          "@type": "cr:Field",
+          "name": "session"
+        },
+        {
+          "dataType": [
+            "sc:Boolean"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "proximity/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "is_multi_subject"
+            }
+          },
+          "@id": "proximity/metadata/sample_metadata.csv/is_multi_subject",
+          "@type": "cr:Field",
+          "name": "is_multi_subject"
+        },
+        {
+          "dataType": [
+            "sc:Float"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "proximity/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "label"
+            }
+          },
+          "@id": "proximity/metadata/sample_metadata.csv/label",
+          "@type": "cr:Field",
+          "name": "label"
+        }
+      ],
+      "@id": "proximity/metadata/sample_metadata.csv",
+      "@type": "cr:RecordSet",
+      "name": "sample_metadata.csv"
+    },
+    {
+      "field": [
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "user_id/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "id"
+            }
+          },
+          "@id": "user_id/metadata/sample_metadata.csv/id",
+          "@type": "cr:Field",
+          "name": "id"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "user_id/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "file_path"
+            }
+          },
+          "@id": "user_id/metadata/sample_metadata.csv/file_path",
+          "@type": "cr:Field",
+          "name": "file_path"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "user_id/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "subject"
+            }
+          },
+          "@id": "user_id/metadata/sample_metadata.csv/subject",
+          "@type": "cr:Field",
+          "name": "subject"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "user_id/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "user"
+            }
+          },
+          "@id": "user_id/metadata/sample_metadata.csv/user",
+          "@type": "cr:Field",
+          "name": "user"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "user_id/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "activity"
+            }
+          },
+          "@id": "user_id/metadata/sample_metadata.csv/activity",
+          "@type": "cr:Field",
+          "name": "activity"
+        },
+        {
+          "dataType": [
+            "sc:Float"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "user_id/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "distance"
+            }
+          },
+          "@id": "user_id/metadata/sample_metadata.csv/distance",
+          "@type": "cr:Field",
+          "name": "distance"
+        },
+        {
+          "dataType": [
+            "sc:Integer"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "user_id/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "num_sub"
+            }
+          },
+          "@id": "user_id/metadata/sample_metadata.csv/num_sub",
+          "@type": "cr:Field",
+          "name": "num_sub"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "user_id/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "environment"
+            }
+          },
+          "@id": "user_id/metadata/sample_metadata.csv/environment",
+          "@type": "cr:Field",
+          "name": "environment"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "user_id/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "device"
+            }
+          },
+          "@id": "user_id/metadata/sample_metadata.csv/device",
+          "@type": "cr:Field",
+          "name": "device"
+        },
+        {
+          "dataType": [
+            "sc:Integer"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "user_id/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "session"
+            }
+          },
+          "@id": "user_id/metadata/sample_metadata.csv/session",
+          "@type": "cr:Field",
+          "name": "session"
+        },
+        {
+          "dataType": [
+            "sc:Boolean"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "user_id/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "is_multi_subject"
+            }
+          },
+          "@id": "user_id/metadata/sample_metadata.csv/is_multi_subject",
+          "@type": "cr:Field",
+          "name": "is_multi_subject"
+        },
+        {
+          "dataType": [
+            "sc:Text"
+          ],
+          "source": {
+            "fileObject": {
+              "@id": "user_id/metadata/sample_metadata.csv_fileobject"
+            },
+            "extract": {
+              "column": "label"
+            }
+          },
+          "@id": "user_id/metadata/sample_metadata.csv/label",
+          "@type": "cr:Field",
+          "name": "label"
+        }
+      ],
+      "@id": "user_id/metadata/sample_metadata.csv",
+      "@type": "cr:RecordSet",
+      "name": "sample_metadata.csv"
+    }
+  ],
+  "version": 1,
+  "keywords": [],
+  "isAccessibleForFree": true,
+  "includedInDataCatalog": {
+    "@type": "sc:DataCatalog",
+    "name": "Kaggle",
+    "url": "https://www.kaggle.com"
+  },
+  "creator": {
+    "@type": "sc:Person",
+    "name": "Signal Z",
+    "url": "/signalz",
+    "image": "https://storage.googleapis.com/kaggle-avatars/thumbnails/default-thumb.png"
+  },
+  "publisher": {
+    "@type": "sc:Organization",
+    "name": "Kaggle",
+    "url": "https://www.kaggle.com/organizations/kaggle",
+    "image": "https://storage.googleapis.com/kaggle-organizations/4/thumbnail.png"
+  },
+  "thumbnailUrl": "https://storage.googleapis.com/kaggle-datasets-images/10317427/16089718/1c419cd9268549624663b0e697e7831b/dataset-card.jpg?t=2026-05-06-19-48-08",
+  "dateModified": "2026-05-04T15:19:51.623",
+  "@type": "sc:Dataset",
+  "name": "Multimodal_CSI_Text",
+  "url": "https://www.kaggle.com/datasets/signalz/multimodal-csi-text/versions/1",
+  "description": "",
+  "rai:dataLimitations": "CSI-TextBench uses template-generated text descriptions derived from categorical labels rather than naturally co-occurring language. While this provides clean, reliable, and semantically consistent supervision, it bounds linguistic diversity compared to free-form captions. The dataset retains only CSI amplitude (phase is discarded due to device-dependent noise), which has been shown sufficient to achieve strong alignment results across all seven tasks. Open-vocabulary recognition generalizes well within everyday language but may degrade for highly specialized terminology outside the text encoder's pretraining distribution; anchored prompting substantially recovers accuracy in these cases. For SignFi, preprocessed CSI samples are not directly included due to its license; instead, we provide preprocessing scripts and CSI-text registry files so users can reproduce the full dataset from the publicly available original. These design choices offer a clean and extensible foundation for future work on richer text supervision and domain-adapted language encoders.",
+  "rai:dataBiases": "CSI-TextBench combines three complementary source benchmarks that together span a broad range of environments, hardware platforms, and semantic granularity. CSI-Bench contributes real-world, in-the-wild data from 16 commercial WiFi device types, while XRF55 adds controlled recordings from 55 participants and SignFi provides high-granularity gesture data (276 classes). The multitask subset involves 7 users, which may underrepresent the full spectrum of demographic and behavioral diversity. Text descriptions are hand-written English-only templates; while this ensures label fidelity and semantic consistency, it introduces linguistic uniformity. To mitigate hardware-specific biases, text is deliberately grounded only in physical phenomena (activity, gesture, proximity) and excludes deployment artifacts such as device type or environment identity. The dataset's diversity across devices, environments, and task complexity provides a strong foundation, and future extensions can broaden subject pools and language coverage.",
+  "rai:personalSensitiveInformation": "WiFi CSI captures radio-frequency channel amplitude measurements and contains no identifiable visual, audio, or biometric content, offering a structural privacy advantage over camera- and microphone-based sensing. The user identification task distinguishes individuals through behavioral motion signatures embedded in CSI patterns, not through personally identifiable biometric data. All source datasets (CSI-Bench, XRF55, SignFi) are publicly available and were collected under their respective Institutional Review Board (IRB) approvals. The released dataset contains preprocessed CSI amplitude tensors stored as HDF5 files and templated text descriptions; no raw personal data, names, images, or audio recordings are included. Users are identified only by anonymous numerical IDs (e.g., \"User 1\" through \"User 22\").",
+  "rai:dataUseCases": "CSI-TextBench is designed for research on multimodal alignment between WiFi CSI signals and natural language. Primary use cases include: (1) zero-shot WiFi-based activity recognition, fall detection, motion source identification, proximity estimation, user identification, and sign/action recognition without class labels; (2) few-shot transfer to unseen classes using frozen CSI-text embeddings; (3) open-vocabulary recognition accepting arbitrary natural-language queries at inference; and (4) compositional ambient scene understanding that jointly resolves activity, proximity, and user identity from a single WiFi signal. Downstream applications span assistive living (elderly fall detection, respiration monitoring), smart building automation, and ambient intelligence systems. The benchmark also serves as a testbed for evaluating diverse alignment paradigms (contrastive, anchor-based, non-contrastive, reconstructive) under dense many-to-many signal-text correspondence.",
+  "rai:dataSocialImpact": "CSI-TextBench enables privacy-preserving indoor contextual awareness using ubiquitous WiFi infrastructure already present in most environments, without requiring cameras or microphones. This supports socially beneficial applications such as elderly care, fall detection, and smart-home automation for aging populations and individuals with disabilities. By turning fixed-label sensors into queryable, composable perception layers, the dataset lowers the integration barrier for ambient intelligence agents. The same methodology transfers directly to other ambient modalities lacking natural text, including radar, mmWave, and acoustic sensing. However, as with any technology that detects human presence and activity, potential for misuse exists in unauthorized surveillance or tracking. The authors recommend explicit consent mechanisms, on-device processing, and access controls for any deployment of ambient sensing systems built on this work.",
+  "rai:hasSyntheticData": false,
+  "prov:wasDerivedFrom": [
+    {
+      "@id": "https://www.kaggle.com/datasets/df9d680b62e1c663333fe8739e34030509beccecd8b5561ebb367f8f5d4a1e05",
+      "prov:label": "CSI-Bench",
+      "sc:license": "CC BY-NC 4.0",
+      "prov:wasAttributedTo": {
+        "prov:label": "Zhu, Guozhen and Hu, Yuqian and Gao, Weihang and Wang, Wei-Hsiang and Wang, Beibei and Liu, K. J. Ray"
+      }
+    },
+    {
+      "@id": "https://www.kaggle.com/datasets/xrfdataset/xrf55-rawdata",
+      "prov:label": "XRF55",
+      "sc:license": "CC BY-NC 4.0",
+      "prov:wasAttributedTo": {
+        "prov:label": "Wang, Fei and Lv, Yizhe and Zhu, Mengdie and Ding, Han and Han, Jinsong"
+      }
+    },
+    {
+      "@id": "https://yongsen.github.io/SignFi/",
+      "prov:label": "SignFi",
+      "sc:license": "custom-non-commercial-research-only",
+      "prov:wasAttributedTo": {
+        "prov:label": "Yongsen Ma, Gang Zhou, Shuangquan Wang, Hongyang Zhao, and Woosub Jung"
+      }
+    }
+  ],
+  "prov:wasGeneratedBy": [
+    {
+      "@type": "prov:Activity",
+      "prov:type": {
+        "@id": "https://www.wikidata.org/wiki/Q4929239"
+      },
+      "prov:label": "CSI Dataset Collection",
+      "sc:description": "CSI data was obtained from publicly available benchmarks including CSI-Bench, XRF55, and SignFi under their respective IRB approvals."
+    },
+    {
+      "@type": "prov:Activity",
+      "prov:type": {
+        "@id": "https://www.wikidata.org/wiki/Q5227332"
+      },
+      "prov:label": "CSI Signal Preprocessing",
+      "sc:description": "A unified preprocessing pipeline was applied: amplitude extraction (discarding phase), segmentation into 5-second non-overlapping windows, per-sample zero-mean unit-variance normalization, and subcarrier alignment to a fixed frequency dimension."
+    },
+    {
+      "@type": "prov:Activity",
+      "prov:type": {
+        "@id": "https://www.wikidata.org/wiki/Q109719325"
+      },
+      "prov:label": "Template-based Text Generation",
+      "sc:description": "Text descriptions were generated using hand-written, task-aware templates without the use of LLMs, producing 2,291 unique descriptions across 353 classes."
+    },
+    {
+      "@type": "prov:Activity",
+      "prov:type": {
+        "@id": "https://www.wikidata.org/wiki/Q1172378"
+      },
+      "prov:label": "Text Quality Filtering",
+      "sc:description": "Filtering removed texts shorter than 10 characters or longer than 300 characters and eliminated duplicate entries."
+    },
+    {
+      "@type": "prov:Activity",
+      "prov:type": {
+        "@id": "https://www.wikidata.org/wiki/Q3306762"
+      },
+      "prov:label": "Manual Quality Check",
+      "sc:description": "A manual review was performed to ensure consistency between CSI signals and template-generated text descriptions."
     }
   ]
 }

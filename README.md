@@ -18,8 +18,6 @@ Ambient intelligence aims to understand everyday environments in a way that is b
 | **Benchmark suite** | Six alignment methods spanning contrastive, anchor-based, redundancy-reduction, and masked cross-modal objectives, with shared encoders and projection heads. |
 | **Evaluation protocols** | Zero-shot classification, ambient QA, cross-task and cross-dataset transfer, and embedding analysis (visualization plus linear probing). |
 
-Machine-readable dataset documentation: [`croissant.json`](croissant.json) (Croissant / Schema.org). Human-readable dataset documentation: [`datasheet.md`](datasheet.md) (Datasheet format).
-
 ---
 
 ## Dataset overview
@@ -424,8 +422,7 @@ CSI-Text-Multimodal-Alignment/
 │   ├── pipelines/                     # End-to-end orchestrators (run_local_experiments.sh, train_local.sh; SageMaker variants under pipelines/sagemaker_scripts/)
 │   ├── baselines/                     # Supervised baselines (no text alignment)
 │   └── paper_experiments/             # Paper-reproducibility extras (multi-seed, held-out, template-count, open-vocab)
-├── datasheet.md                       # Datasheet for Datasets (Gebru et al.)
-├── croissant.json                     # Croissant metadata (NeurIPS artifact)
+├── croissant_rai_CSI_Text.json                     # Croissant metadata for the released dataset
 ├── requirements.txt
 └── LICENSE
 ```
