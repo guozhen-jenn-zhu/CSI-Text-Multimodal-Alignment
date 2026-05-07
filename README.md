@@ -442,7 +442,7 @@ All methods are selected via `configs/method/<name>.yaml` and `method=` in the e
 ## License
 
 - **Code** (this repository): **MIT** -- see [`LICENSE`](LICENSE).
-- **CSI-Text curated text, manifests, and processed splits**: **CC-BY-SA-4.0**, unless noted otherwise.
+- **CSI-Text curated text, manifests, and processed splits**: **CC BY-NC-ND 4.0**, unless noted otherwise.
 - **Original CSI measurements** remain under their respective source licenses (CSI-Bench, XRF55, SignFi).
 
 ---
