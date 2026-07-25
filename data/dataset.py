@@ -335,6 +335,14 @@ def build_dataloaders(
             prefetch_factor:     int   (default 2)
             persistent_workers:  bool  (default True)
             preload:             bool  (default False)
+            test_split:          str   (default "test")
+            build_splits:        list  (default ["train", "val", "test"])
+
+        ``test_split`` selects which split file backs the ``"test"`` loader,
+        allowing evaluation against alternative split definitions such as
+        ``cross_env`` or ``cross_device`` without touching train/val.
+        ``build_splits`` restricts which loaders are constructed, so
+        evaluation-only callers can skip the cost of indexing train/val.
 
     distributed : bool
         Whether to use DistributedSampler.
@@ -343,7 +351,7 @@ def build_dataloaders(
 
     Returns
     -------
-    dict with keys "train", "val", "test" mapping to DataLoaders.
+    dict mapping each name in ``build_splits`` to a DataLoader.
     """
     shared_kwargs: dict[str, Any] = {
         "task_root": config["task_root"],
@@ -378,12 +386,16 @@ def build_dataloaders(
     class_filter_raw = config.get("class_filter")
     class_filter = set(class_filter_raw) if class_filter_raw else None
 
+    test_split = config.get("test_split", "test")
+    build_splits = tuple(config.get("build_splits") or ("train", "val", "test"))
+
     loaders: dict[str, DataLoader] = {}
-    for split in ("train", "val", "test"):
+    for split in build_splits:
         transform = train_augmentation if split == "train" else None
         split_class_filter = class_filter if split in ("train", "val") else None
         ds = CSITextDataset(
-            split=split, transform=transform,
+            split=test_split if split == "test" else split,
+            transform=transform,
             class_filter=split_class_filter,
             **shared_kwargs,
         )

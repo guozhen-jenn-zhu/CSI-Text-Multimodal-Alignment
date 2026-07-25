@@ -176,9 +176,11 @@ class Trainer:
         log_cfg = self.config.get("logging", {})
         checkpoint_dir = Path(log_cfg.get("checkpoint_dir", "checkpoints"))
         task = self.config.get("task", "unknown")
-        self.checkpoint_dir = (
-            checkpoint_dir / f"{self.config['dataset']}-{task}-{self.config['method']}"
-        )
+        run_name = f"{self.config['dataset']}-{task}-{self.config['method']}"
+        run_tag = log_cfg.get("run_tag")
+        if run_tag:
+            run_name = f"{run_name}-{run_tag}"
+        self.checkpoint_dir = checkpoint_dir / run_name
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
         log_file = self.checkpoint_dir / "train.log"

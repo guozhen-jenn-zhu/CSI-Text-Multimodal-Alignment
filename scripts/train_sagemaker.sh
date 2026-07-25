@@ -46,6 +46,41 @@ BATCH_SIZE="${BATCH_SIZE:-128}"
 MAX_EPOCHS="${MAX_EPOCHS:-200}"
 NUM_WORKERS="${NUM_WORKERS:-4}"
 LR="${LR:-1e-3}"
+# Projection width. sagemaker_g5.yaml defaults to 256, but the published HAR
+# checkpoints were trained at 512 -- set PROJ_DIM=512 to reproduce/match them.
+PROJ_DIM="${PROJ_DIM:-}"
+
+# ------------------------------------------------------------------
+# Text-source variant (e.g. VARIANT=freeform for human-written captions).
+# When set, training reads pair_registry_${VARIANT}.json and
+# text_embeddings_${VARIANT}_${TEXT_ENCODER}.h5, and the checkpoint /
+# results dirs are tagged with -${VARIANT} so the baseline is never
+# clobbered (locally or on S3). Standard evaluation still uses the
+# canonical template registry for class-text prototypes so zero-shot
+# numbers stay comparable across variants (override with EVAL_REGISTRY_FILE).
+# ------------------------------------------------------------------
+VARIANT="${VARIANT:-}"
+# RUN_TAG names the checkpoint / results dirs. Defaults to VARIANT, but can be
+# set independently (e.g. VARIANT=freeform RUN_TAG=freeform_vit1d) when several
+# runs share one registry but differ in architecture.
+RUN_TAG="${RUN_TAG:-$VARIANT}"
+if [[ -n "$VARIANT" ]]; then
+    REG_FILE="pair_registry_${VARIANT}.json"
+    EMB_FILE="text_embeddings_${VARIANT}_${TEXT_ENCODER}.h5"
+else
+    REG_FILE="pair_registry.json"
+    EMB_FILE="text_embeddings_${TEXT_ENCODER}.h5"
+fi
+if [[ -n "$RUN_TAG" ]]; then
+    CKPT_SUFFIX="-${RUN_TAG}"
+    RESULTS_SUFFIX="_${RUN_TAG}"
+else
+    CKPT_SUFFIX=""
+    RESULTS_SUFFIX=""
+fi
+# Registry / embeddings used for evaluation class-text prototypes.
+EVAL_REGISTRY_FILE="${EVAL_REGISTRY_FILE:-pair_registry.json}"
+EVAL_EMB_FILE="text_embeddings_${TEXT_ENCODER}.h5"
 
 REPO_ROOT="/home/sagemaker-user/CSI-Text-Multimodal-Alignment"
 DATA_ROOT="/home/sagemaker-user/Multimodal_CSI_Text/Dataset"
@@ -170,7 +205,7 @@ check_registry() {
     local task_name="$1"
     local reg_dir
     reg_dir=$(resolve_registry_dir "$task_name")
-    local reg_path="${reg_dir}/pair_registry.json"
+    local reg_path="${reg_dir}/${REG_FILE}"
 
     if [[ -f "$reg_path" ]]; then
         log "Pair registry found: ${reg_path}"
@@ -178,12 +213,16 @@ check_registry() {
     fi
 
     log "ERROR: Pair registry not found at: ${reg_path}"
-    log "Please add pair_registry.json to the dataset before training."
-    log "You can generate it with:"
-    log "  cd ${REPO_ROOT}"
-    log "  PYTHONPATH=. python scripts/generate_all_texts.py \\"
-    log "      --datasets ${DATASET} --tasks ${task_name} \\"
-    log "      --data_root ${DATA_ROOT}/csibench --output_dir ${reg_dir}"
+    log "Please add ${REG_FILE} to the dataset before training."
+    if [[ -z "$VARIANT" ]]; then
+        log "You can generate it with:"
+        log "  cd ${REPO_ROOT}"
+        log "  PYTHONPATH=. python scripts/generate_all_texts.py \\"
+        log "      --datasets ${DATASET} --tasks ${task_name} \\"
+        log "      --data_root ${DATA_ROOT}/csibench --output_dir ${reg_dir}"
+    else
+        log "For VARIANT=${VARIANT}, download the registry to ${reg_path} first."
+    fi
     exit 1
 }
 
@@ -194,8 +233,8 @@ generate_embeddings() {
     local task_name="$1"
     local reg_dir
     reg_dir=$(resolve_registry_dir "$task_name")
-    local reg_path="${reg_dir}/pair_registry.json"
-    local emb_path="${reg_dir}/text_embeddings_${TEXT_ENCODER}.h5"
+    local reg_path="${reg_dir}/${REG_FILE}"
+    local emb_path="${reg_dir}/${EMB_FILE}"
 
     if [[ -f "$emb_path" ]]; then
         log "Text embeddings already exist: ${emb_path}"
@@ -230,10 +269,10 @@ train_task() {
     task_root=$(resolve_task_root "$task_name")
     local reg_dir
     reg_dir=$(resolve_registry_dir "$task_name")
-    local reg_path="${reg_dir}/pair_registry.json"
-    local emb_path="${reg_dir}/text_embeddings_${TEXT_ENCODER}.h5"
+    local reg_path="${reg_dir}/${REG_FILE}"
+    local emb_path="${reg_dir}/${EMB_FILE}"
 
-    log "Stage 4: Training ${DATASET}/${task_name} | method=${METHOD} encoder=${ENCODER}"
+    log "Stage 4: Training ${DATASET}/${task_name} | method=${METHOD} encoder=${ENCODER}${VARIANT:+ variant=${VARIANT}}"
     log "  GPUs: ${num_gpus} | batch_size: ${BATCH_SIZE} (per GPU) | effective: $((BATCH_SIZE * num_gpus))"
     log "  task_root: ${task_root}"
     log "  registry:  ${reg_path}"
@@ -256,6 +295,12 @@ train_task() {
         "training.num_workers=${NUM_WORKERS}"
         "logging.checkpoint_dir=${MODEL_ROOT}/checkpoints"
     )
+    if [[ -n "$RUN_TAG" ]]; then
+        overrides+=("logging.run_tag=${RUN_TAG}")
+    fi
+    if [[ -n "$PROJ_DIM" ]]; then
+        overrides+=("projection.dim=${PROJ_DIM}")
+    fi
 
     if [[ "$num_gpus" -gt 1 ]]; then
         python -m torch.distributed.run \
@@ -283,17 +328,18 @@ evaluate_task() {
     task_root=$(resolve_task_root "$task_name")
     local reg_dir
     reg_dir=$(resolve_registry_dir "$task_name")
-    local reg_path="${reg_dir}/pair_registry.json"
-    local ckpt_path="${MODEL_ROOT}/checkpoints/${DATASET}-${task_name}-${METHOD}/best.pt"
-    local results_dir="${MODEL_ROOT}/results/${DATASET}/${task_name}/${METHOD}_${ENCODER}"
+    local reg_path="${reg_dir}/${EVAL_REGISTRY_FILE}"
+    local ckpt_path="${MODEL_ROOT}/checkpoints/${DATASET}-${task_name}-${METHOD}${CKPT_SUFFIX}/best.pt"
+    local results_dir="${MODEL_ROOT}/results/${DATASET}/${task_name}/${METHOD}_${ENCODER}${RESULTS_SUFFIX}"
 
     if [[ ! -f "$ckpt_path" ]]; then
         log "ERROR: Checkpoint not found: ${ckpt_path}"
         return 1
     fi
 
-    log "Stage 5: Evaluating ${DATASET}/${task_name}"
+    log "Stage 5: Evaluating ${DATASET}/${task_name}${VARIANT:+ (variant=${VARIANT})}"
     log "  checkpoint: ${ckpt_path}"
+    log "  eval registry (class texts): ${reg_path}"
     log "  results:    ${results_dir}"
 
     cd "$REPO_ROOT"
@@ -306,7 +352,7 @@ evaluate_task() {
         --override \
             "task_root=${task_root}" \
             "registry_path=${reg_path}" \
-            "text_embeddings_path=${reg_dir}/text_embeddings_${TEXT_ENCODER}.h5" \
+            "text_embeddings_path=${reg_dir}/${EVAL_EMB_FILE}" \
         --eval_protocols zero_shot cross_task visualization \
         --registry_dir "$registry_parent" \
         --data_root "$DATA_ROOT" \

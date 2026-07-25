@@ -179,6 +179,58 @@ OPEN_VOCAB_HAR_FAMILIES: Dict[str, Dict[int, List[str]]] = {
             "Partial body movement with only one arm producing detectable wireless signal changes",
         ],
     },
+
+    # -------------------------------------------------------------------
+    # Tier 4 — Held-out freeform (casual human phrasing, deliberately
+    # disjoint from BOTH the template registry and the freeform training
+    # registry; verified by scripts/check_eval_prompt_disjoint.py). These
+    # measure whether alignment generalises to spontaneous everyday
+    # descriptions rather than any specific training caption.
+    # -------------------------------------------------------------------
+    "freeform_colloquial": {
+        0: ["Bouncing straight up over and over, feet popping off the floor each time."],
+        1: ["Sprinting flat-out across the space, legs pumping hard."],
+        2: ["Slumped in a chair, barely stirring, just quietly breathing in and out."],
+        3: ["Ambling across the room unhurried, one relaxed step after another."],
+        4: ["Wagging one hand overhead back and forth like flagging down a friend."],
+    },
+    "freeform_colloquial_ensemble": {
+        0: [
+            "Bouncing straight up over and over, feet popping off the floor each time.",
+            "They keep springing off the ground and dropping right back down.",
+            "Little pogo-stick hops, staying in the exact same spot.",
+            "Boing after boing, launching upward again and again.",
+            "Repeatedly leaping skyward without drifting anywhere.",
+        ],
+        1: [
+            "Sprinting flat-out across the space, legs pumping hard.",
+            "Booking it from wall to wall at full tilt.",
+            "Racing around fast enough to break a sweat.",
+            "Legs churning quickly, tearing across the floor.",
+            "Hustling across the room at a real clip.",
+        ],
+        2: [
+            "Slumped in a chair, barely stirring, just quietly breathing in and out.",
+            "Parked in a seat, motionless except for slow chest rises.",
+            "Sitting like a statue, only the faint rhythm of breath giving them away.",
+            "Zoned out in a chair, hardly moving a muscle while breathing softly.",
+            "Perched still on a seat with nothing but gentle breaths happening.",
+        ],
+        3: [
+            "Ambling across the room unhurried, one relaxed step after another.",
+            "Taking a mellow walk from here to over there.",
+            "Strolling along easy, in no rush at all.",
+            "Padding across the floor at an everyday pace.",
+            "Wandering across the space with slow steady footsteps.",
+        ],
+        4: [
+            "Wagging one hand overhead back and forth like flagging down a friend.",
+            "Swishing an arm side to side in a big hello.",
+            "Flapping a palm around up high to catch someone's eye.",
+            "Swinging one hand to and fro like signalling across a crowd.",
+            "Waggling fingers and forearm in a cheerful wave.",
+        ],
+    },
 }
 
 FAMILY_DESCRIPTIONS: Dict[str, str] = {
@@ -190,4 +242,6 @@ FAMILY_DESCRIPTIONS: Dict[str, str] = {
     "domain_expert_ensemble": "Clinical vocabulary (5 templates, anchored)",
     "layperson_ensemble": "Everyday language (5 templates)",
     "sensor_grounded_ensemble": "Sensor-physics vocabulary (5 templates, anchored)",
+    "freeform_colloquial": "Held-out freeform casual phrasing (1 template)",
+    "freeform_colloquial_ensemble": "Held-out freeform casual phrasing (5 templates)",
 }

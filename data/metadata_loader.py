@@ -102,13 +102,40 @@ class MetadataLoader:
         for p in candidates:
             if p.is_file():
                 with open(p) as f:
-                    ids = json.load(f)
+                    payload = json.load(f)
+                ids = self._extract_split_ids(payload, split, p)
                 logger.info("Loaded %d IDs for split '%s' from %s", len(ids), split, p)
-                return [str(i) for i in ids]
+                return ids
 
         raise FileNotFoundError(
             f"Split file not found for '{split}'. Searched: {[str(c) for c in candidates]}"
         )
+
+    @staticmethod
+    def _extract_split_ids(payload: Any, split: str, path: Path) -> list[str]:
+        """Normalise a split file payload to a flat list of sample IDs.
+
+        Accepts a bare list, or an object wrapping the list under one of
+        ``test`` / ``ids`` / ``sample_ids`` / ``samples`` / the split name.
+        """
+        if isinstance(payload, dict):
+            for key in (split, "test", "ids", "sample_ids", "samples"):
+                if key in payload:
+                    payload = payload[key]
+                    break
+            else:
+                raise ValueError(
+                    f"Split file {path} is an object without a recognised ID list "
+                    f"key. Found keys: {sorted(payload.keys())}"
+                )
+
+        if not isinstance(payload, list):
+            raise ValueError(
+                f"Split file {path} must contain a list of sample IDs, "
+                f"got {type(payload).__name__}"
+            )
+
+        return [str(i) for i in payload]
 
     def get_metadata(self, sample_id: str) -> dict[str, Any]:
         """Return the full metadata dict for a sample."""

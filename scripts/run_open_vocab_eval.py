@@ -303,6 +303,14 @@ def main() -> None:
         "--override", nargs="*", default=[],
         help="Config overrides key.subkey=value",
     )
+    parser.add_argument(
+        "--families", nargs="*", default=None,
+        help="Subset of prompt families to evaluate (keys of "
+             "OPEN_VOCAB_HAR_FAMILIES, plus 'original_templates'). "
+             "Default: evaluate all. Useful to score a cached model on only "
+             "newly added families, e.g. "
+             "--families freeform_colloquial freeform_colloquial_ensemble",
+    )
     args = parser.parse_args()
 
     # --- Load config -------------------------------------------------------
@@ -355,11 +363,27 @@ def main() -> None:
     logger.info("Encoded %d samples, %d unique labels", len(labels), len(np.unique(labels)))
 
     # --- Evaluate each prompt family ----------------------------------------
-    prompt_sets: dict[str, dict[int, list[str]]] = {
-        "original_templates": _original_class_texts(),
-    }
+    selected = args.families
+    if selected is not None:
+        known = {"original_templates", *OPEN_VOCAB_HAR_FAMILIES.keys()}
+        unknown = [f for f in selected if f not in known]
+        if unknown:
+            parser.error(
+                f"Unknown prompt families {unknown}. "
+                f"Valid options: {sorted(known)}"
+            )
+
+    prompt_sets: dict[str, dict[int, list[str]]] = {}
+    if selected is None or "original_templates" in selected:
+        prompt_sets["original_templates"] = _original_class_texts()
     for family_name, family_texts in OPEN_VOCAB_HAR_FAMILIES.items():
-        prompt_sets[family_name] = family_texts
+        if selected is None or family_name in selected:
+            prompt_sets[family_name] = family_texts
+
+    if not prompt_sets:
+        parser.error(f"No prompt families selected for --families {selected}")
+    logger.info("Evaluating %d prompt families: %s",
+                len(prompt_sets), list(prompt_sets.keys()))
 
     all_results: dict[str, Any] = {}
     for name, class_texts in prompt_sets.items():
