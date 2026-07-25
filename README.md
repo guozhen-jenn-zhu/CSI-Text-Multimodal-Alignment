@@ -398,9 +398,46 @@ REPO_ROOT=$PWD DATA_ROOT=/data/Dataset MODEL_ROOT=/data/Model \
     bash scripts/run_cross_domain_eval.sh
 ```
 
+For `proximity` the sweep uses the retrained `csibench-proximity_fixed-<method>`
+checkpoints (corrected 4-class metadata, see `scripts/retrain_proximity_fixed.sh`)
+and writes to `results/csibench/proximity_fixed/`. The data still comes from
+`multitask/proximity`. Pass `PROXIMITY_TAG=proximity` to score the older
+checkpoints instead.
+
 Additional output files:
 - `cross_domain/<split>.json` -- per-split metrics
 - `cross_domain/summary.json` -- all splits plus success/failure counts
+
+#### Which checkpoint file gets scored
+
+Some checkpoint directories contain weights from more than one training run, so
+`best.pt` is not always the model behind the published numbers. In
+`csibench-har-clip_infonce/`, `best.pt` is the Priority 5B sentence-transformer
+ablation (90.2% zero-shot on HAR) because it overwrote the original file; the
+benchmark 98.7% comes from `epoch_150_p0_clip.pt` (ResNet-18 1D + CLIP ViT-B/32).
+
+Every checkpoint embeds its training config, so the sweep picks the file by
+reading that config back instead of trusting the filename:
+
+```bash
+# Show which file each task resolves to, without evaluating anything
+PREFLIGHT=1 bash scripts/run_cross_domain_eval.sh
+
+# Inspect one directory directly
+python -m scripts.resolve_checkpoint \
+    --checkpoint_dir "$MODEL_ROOT/checkpoints/csibench-har-clip_infonce" --info
+```
+
+Candidates whose `csi_encoder.name`, `text_encoder.name`, or `method` differ from
+`ENCODER` / `TEXT_ENCODER` / `METHOD` are rejected; among the rest the lowest
+`val_loss` wins. A task is skipped with an explicit message when nothing matches,
+instead of silently reporting another model. `CKPT_FILE=<name>` forces a specific
+filename.
+
+When `WITH_IID=1` recomputes the IID number in a results directory that already
+has one, the two are compared: a drift beyond `IID_TOL` (default `0.005`) prints
+a warning and preserves the previous file as `metrics.pre_cross_domain.json`,
+since that means the run scored a different model than the one reported before.
 
 ### Cross-domain few-shot fine-tuning
 
@@ -533,6 +570,7 @@ CSI-Text-Multimodal-Alignment/
 │   ├── generate_all_texts.py  # Text pair registry generation
 │   ├── preprocess_to_consolidated.py  # H5 consolidation for fast I/O
 │   ├── run_evaluate.py      # Evaluation protocol runner
+│   ├── resolve_checkpoint.py     # Verify a checkpoint's architecture before scoring it
 │   └── run_cross_domain_eval.sh  # Cross-device / cross-environment sweep
 ├── datasheet.md             # Datasheet for Datasets (Gebru et al.)
 ├── croissant.json           # Croissant metadata (NeurIPS artifact)

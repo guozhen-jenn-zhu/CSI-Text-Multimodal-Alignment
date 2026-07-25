@@ -2233,6 +2233,20 @@ def main() -> None:
     state = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
     model.load_state_dict(state, strict=True)
 
+    # Checkpoint directories are sometimes shared by several training runs, so
+    # record which model this evaluation actually scored.
+    val_loss = ckpt.get("val_loss") if isinstance(ckpt, dict) else None
+    logger.info(
+        "Loaded %s | encoder=%s text_encoder=%s method=%s task=%s epoch=%s val_loss=%s",
+        ckpt_path,
+        config.get("csi_encoder", {}).get("name", "resnet18_1d"),
+        config.get("text_encoder", {}).get("name", "clip_vit_b32"),
+        config.get("method"),
+        config.get("task") or config.get("tasks"),
+        ckpt.get("epoch") if isinstance(ckpt, dict) else None,
+        f"{val_loss:.4f}" if isinstance(val_loss, float) else val_loss,
+    )
+
     # ------------------------------------------------------------------
     # Multi-task evaluation: evaluate each task separately, then combine
     # ------------------------------------------------------------------
