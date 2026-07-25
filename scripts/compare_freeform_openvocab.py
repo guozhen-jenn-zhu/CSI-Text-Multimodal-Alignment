@@ -162,11 +162,18 @@ def main() -> None:
     # Fair-comparison guardrail: warn on encoder / sample-count mismatch.
     t_enc = tmpl.get("model", {}).get("csi_encoder")
     f_enc = free.get("model", {}).get("csi_encoder")
+    t_txt = tmpl.get("model", {}).get("text_encoder")
+    f_txt = free.get("model", {}).get("text_encoder")
     warnings: list[str] = []
     if t_enc and f_enc and t_enc != f_enc:
         warnings.append(
             f"CSI encoders differ (template={t_enc}, freeform={f_enc}); "
             "the comparison is confounded by architecture, not just text source."
+        )
+    if t_txt and f_txt and t_txt != f_txt:
+        warnings.append(
+            f"Text encoders differ (template={t_txt}, freeform={f_txt}); "
+            "prompt embeddings are not comparable across a different text encoder."
         )
     if (tmpl.get("num_test_samples") and free.get("num_test_samples")
             and tmpl["num_test_samples"] != free["num_test_samples"]):
