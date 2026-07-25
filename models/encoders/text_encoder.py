@@ -1,7 +1,17 @@
 from __future__ import annotations
 
+import os
+
 import torch
 import torch.nn as nn
+
+# ``transformers`` / ``datasets`` probe for TensorFlow, Flax and JAX backends
+# when first imported, and a partially-installed backend in the environment
+# makes that probe raise rather than degrade. This project is PyTorch-only, so
+# opt out of the other backends before the lazy imports below run. Defaults
+# only, so an explicit setting from the caller still wins.
+for _backend_flag in ("USE_TF", "USE_FLAX", "USE_JAX"):
+    os.environ.setdefault(_backend_flag, "0")
 
 
 class CLIPTextEncoder(nn.Module):

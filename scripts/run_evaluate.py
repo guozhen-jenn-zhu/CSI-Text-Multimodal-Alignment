@@ -5,9 +5,18 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
+
+# ``transformers`` / ``datasets`` (pulled in by the text encoders) probe for
+# TensorFlow / Flax / JAX at import time; a broken TF install in the
+# environment makes that probe raise instead of degrading gracefully. This
+# project is PyTorch-only, so opt out before any such import runs. ``setdefault``
+# keeps an explicit caller override intact.
+for _backend_flag in ("USE_TF", "USE_FLAX", "USE_JAX"):
+    os.environ.setdefault(_backend_flag, "0")
 
 import numpy as np
 import torch
@@ -1229,10 +1238,6 @@ def _run_cross_domain_eval(
     cd_dir.mkdir(parents=True, exist_ok=True)
 
     base_cfg = _loader_config_from_experiment(config, task=task, dataset_name=dataset)
-    # Prototypes are encoded live from class texts, so the per-sample text
-    # embedding cache is unused here. Dropping it avoids a hard failure when
-    # that H5 is missing or was built with a different text encoder.
-    base_cfg.pop("text_embeddings_path", None)
     results: dict[str, Any] = {}
 
     for split_name in split_names:

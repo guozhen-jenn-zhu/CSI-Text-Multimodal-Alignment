@@ -93,16 +93,13 @@ class MetadataLoader:
                     self._index[sid][col] = row[col]
 
     def get_split_ids(self, split: str) -> list[str]:
-        """Load sample IDs for a given split from the JSON file.
-
-        The ``test_<split>.json`` candidate lets evaluation-only splits be
-        requested by their short name (``cross_env``) regardless of whether
-        the file on disk is named ``cross_env.json`` or ``test_cross_env.json``.
-        """
+        """Load sample IDs for a given split from the JSON file."""
         candidates = [
             self._splits_dir / f"{split}_id.json",
             self._splits_dir / f"{split}_ids.json",
             self._splits_dir / f"{split}.json",
+            # Cross-domain splits ship as ``test_<name>.json`` (e.g.
+            # ``test_cross_env.json``); resolve them from the logical name.
             self._splits_dir / f"test_{split}.json",
         ]
         for p in candidates:
