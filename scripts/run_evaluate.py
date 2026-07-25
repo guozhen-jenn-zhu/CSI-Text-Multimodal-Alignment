@@ -284,7 +284,7 @@ def cross_dataset_source_name(config: dict) -> str:
 
 
 # ------------------------------------------------------------------
-# Ambient QA helpers (unchanged)
+# Ambient QA / scene helpers
 # ------------------------------------------------------------------
 
 def _register_ambient_answers(
@@ -295,13 +295,7 @@ def _register_ambient_answers(
     Tries to load from per-task registries first (uses the first template text
     per class). Falls back to raw templates.
     """
-    task_attr_map = {
-        "har": "activity",
-        "proximity": "proximity",
-        "user_id": "user_identity",
-    }
-
-    for task_name, attr in task_attr_map.items():
+    for task_name, attr in SCENE_TASK_ATTRIBUTES.items():
         if attr not in aq.QUESTION_TEMPLATES:
             continue
 
@@ -367,41 +361,62 @@ def _normalize_csi_single(
 
 def _normalize_raw_label(task_name: str, raw_label: Any) -> str:
     """Normalise a raw metadata label to the composite-template key format."""
-    s = str(raw_label)
-    if task_name == "user_id":
-        if s.startswith("U") and s[1:].isdigit():
-            return f"user_{int(s[1:])}"
-        return s
-    if task_name == "har":
-        return {"seated-breathing": "seated_breathing", "wavinghand": "waving"}.get(s, s)
-    if task_name == "proximity":
-        try:
-            return f"{float(s)}m"
-        except ValueError:
-            return s
-    return s
+    return normalize_attribute_value(task_name, raw_label)
 
 
-def _run_ambient_qa_multitask(
+class SceneBatchError(RuntimeError):
+    """Raised when the co-labeled scene subset cannot be assembled."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+    def as_result(self) -> dict[str, str]:
+        return {"error": self.code, "message": self.message}
+
+
+@dataclass
+class MultitaskSceneBatch:
+    """Encoded samples co-labeled with activity, proximity and user identity.
+
+    Shared by ambient QA (:func:`_run_ambient_qa_multitask`) and the
+    compositional-generalization analysis, so both always evaluate the same
+    population with the same preprocessing.
+    """
+
+    sample_ids: list[str]
+    csi_embeddings: torch.Tensor
+    int_labels: dict[str, np.ndarray] = field(default_factory=dict)
+    triples: Optional[list[tuple[str, str, str]]] = None
+
+
+def collect_multitask_scene_embeddings(
     model: torch.nn.Module,
-    text_encoder: torch.nn.Module,
-    text_projection: Optional[torch.nn.Module],
-    csi_projection: torch.nn.Module,
+    csi_projection: Optional[torch.nn.Module],
     config: dict,
     device: torch.device,
-    registry_dir: Optional[str] = None,
-    output_dir: Optional[Path] = None,
-) -> dict[str, Any]:
+    split: str = "test",
+) -> MultitaskSceneBatch:
+    """Encode the samples shared by the har / proximity / user_id splits.
+
+    Raises
+    ------
+    SceneBatchError
+        When the config has no matching multitask tasks, or the tasks share no
+        samples in *split*.
+    """
     from data.metadata_loader import MetadataLoader
 
-    attr_map = {"har": "activity", "proximity": "proximity", "user_id": "user_identity"}
     mt_entries = [
         e for e in config.get("multitask", {}).get("tasks", [])
-        if isinstance(e, dict) and e.get("task_name") in attr_map
+        if isinstance(e, dict) and e.get("task_name") in SCENE_TASK_ATTRIBUTES
     ]
     if not mt_entries:
-        return {"error": "no_multitask_tasks_in_config",
-                "message": "Config has no multitask.tasks entries matching har/proximity/user_id."}
+        raise SceneBatchError(
+            "no_multitask_tasks_in_config",
+            "Config has no multitask.tasks entries matching har/proximity/user_id.",
+        )
 
     task_loaders: dict[str, MetadataLoader] = {}
     for entry in mt_entries:
@@ -409,14 +424,16 @@ def _run_ambient_qa_multitask(
             entry["task_root"], h5_key=entry.get("h5_key", "CSI_amps"),
         )
 
-    test_id_sets = {
-        t: set(ld.filter_valid_ids(ld.get_split_ids("test")))
+    id_sets = {
+        t: set(ld.filter_valid_ids(ld.get_split_ids(split)))
         for t, ld in task_loaders.items()
     }
-    shared_ids = sorted(set.intersection(*test_id_sets.values()))
+    shared_ids = sorted(set.intersection(*id_sets.values()))
     if not shared_ids:
-        return {"error": "no_shared_test_samples",
-                "message": "No shared test sample IDs across multitask tasks."}
+        raise SceneBatchError(
+            f"no_shared_{split}_samples",
+            f"No shared {split} sample IDs across multitask tasks.",
+        )
 
     ref_loader = next(iter(task_loaders.values()))
     preproc = config.get("dataset_config", {}).get("preprocessing", {})
@@ -442,13 +459,13 @@ def _run_ambient_qa_multitask(
     csi_emb = torch.cat(emb_chunks, dim=0)
 
     # Collect both integer labels (Level 1) and raw string labels (Level 2)
-    tasks_and_labels: dict[str, np.ndarray] = {}
-    raw_labels_per_task: dict[str, list[str]] = {}
+    int_labels: dict[str, np.ndarray] = {}
+    normalized_per_task: dict[str, list[str]] = {}
 
     for task_name, loader in task_loaders.items():
-        attr = attr_map[task_name]
+        attr = SCENE_TASK_ATTRIBUTES[task_name]
         raw_labels = [loader.get_label(sid) for sid in shared_ids]
-        raw_labels_per_task[task_name] = [
+        normalized_per_task[task_name] = [
             _normalize_raw_label(task_name, lbl) for lbl in raw_labels
         ]
 
@@ -456,12 +473,55 @@ def _run_ambient_qa_multitask(
         if lmap_path.is_file():
             with open(lmap_path) as _lf:
                 label_to_idx = json.load(_lf)["label_to_idx"]
-            int_labels = [label_to_idx[str(lbl)] for lbl in raw_labels]
+            ints = [label_to_idx[str(lbl)] for lbl in raw_labels]
         else:
             unique = sorted(set(raw_labels))
             lbl2int = {lbl: i for i, lbl in enumerate(unique)}
-            int_labels = [lbl2int[lbl] for lbl in raw_labels]
-        tasks_and_labels[attr] = np.array(int_labels, dtype=np.int64)
+            ints = [lbl2int[lbl] for lbl in raw_labels]
+        int_labels[attr] = np.array(ints, dtype=np.int64)
+
+    triples: Optional[list[tuple[str, str, str]]] = None
+    if all(t in normalized_per_task for t in ("user_id", "har", "proximity")):
+        triples = list(
+            zip(
+                normalized_per_task["user_id"],
+                normalized_per_task["har"],
+                normalized_per_task["proximity"],
+            )
+        )
+    else:
+        logger.warning(
+            "Composite triples unavailable: have tasks %s",
+            list(normalized_per_task.keys()),
+        )
+
+    return MultitaskSceneBatch(
+        sample_ids=shared_ids,
+        csi_embeddings=csi_emb,
+        int_labels=int_labels,
+        triples=triples,
+    )
+
+
+def _run_ambient_qa_multitask(
+    model: torch.nn.Module,
+    text_encoder: torch.nn.Module,
+    text_projection: Optional[torch.nn.Module],
+    csi_projection: torch.nn.Module,
+    config: dict,
+    device: torch.device,
+    registry_dir: Optional[str] = None,
+    output_dir: Optional[Path] = None,
+) -> dict[str, Any]:
+    try:
+        batch = collect_multitask_scene_embeddings(
+            model, csi_projection, config, device, split="test",
+        )
+    except SceneBatchError as exc:
+        return exc.as_result()
+
+    csi_emb = batch.csi_embeddings
+    tasks_and_labels = batch.int_labels
 
     aq = AmbientQA(text_encoder, text_projection, device=str(device))
     _register_ambient_answers(aq, config, registry_dir=registry_dir)
@@ -474,16 +534,8 @@ def _run_ambient_qa_multitask(
     result: dict[str, Any] = {"level1": level1}
 
     # Level 2: composite (holistic scene) QA
-    has_all_tasks = all(t in raw_labels_per_task for t in ("user_id", "har", "proximity"))
-    if has_all_tasks:
-        gt_tuples = [
-            (user, act, prox)
-            for user, act, prox in zip(
-                raw_labels_per_task["user_id"],
-                raw_labels_per_task["har"],
-                raw_labels_per_task["proximity"],
-            )
-        ]
+    if batch.triples is not None:
+        gt_tuples = batch.triples
         try:
             level2 = aq.evaluate_composite_qa(csi_emb, gt_tuples)
             result["level2"] = level2
@@ -511,8 +563,7 @@ def _run_ambient_qa_multitask(
             result["level2"] = {"error": str(e)}
     else:
         logger.warning(
-            "Level 2 composite QA skipped: missing tasks. Have: %s",
-            list(raw_labels_per_task.keys()),
+            "Level 2 composite QA skipped: config lacks one of har/proximity/user_id.",
         )
 
     return result

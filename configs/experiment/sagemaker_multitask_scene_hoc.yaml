@@ -1,0 +1,97 @@
+dataset: csibench
+# Distinct task name so the checkpoint lands in its own directory
+# (multitask_train names it "<dataset>-<task>-<method>") and the baseline
+# scene checkpoint is never clobbered.
+task: multitask_scene_hoc
+method: clip_infonce
+
+# Held-out-composition (strict) variant of sagemaker_multitask_scene.yaml.
+# Samples whose (user, activity, proximity) combination is withheld are absent
+# from train and val, so both the signal condition and the composed caption are
+# unseen at test time.  Build the task roots first:
+#
+#   PYTHONPATH=. python scripts/build_composition_splits.py \
+#       --config configs/experiment/sagemaker_multitask_scene.yaml --mode both
+#
+# Everything below matches the baseline config so the only difference is which
+# combinations the model was trained on.
+multitask:
+  sampling: proportional
+  tasks:
+    - task_name: har
+      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench/multitask_hoc/har
+      h5_key: CSI_amps
+    - task_name: proximity
+      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench/multitask_hoc/proximity
+      h5_key: CSI_amps
+    - task_name: user_id
+      task_root: /home/sagemaker-user/Multimodal_CSI_Text/Dataset/csibench/multitask_hoc/user_id
+      h5_key: CSI_amps
+
+dataset_config:
+  preprocessing:
+    input_channels: 1
+    target_subcarriers: 64
+    target_time_steps: 500
+    normalize: true
+
+csi_encoder:
+  name: resnet18_1d
+  pretrained: false
+  dropout: 0.1
+
+text_encoder:
+  name: clip_vit_b32
+  frozen: true
+
+projection:
+  dim: 512
+  hidden_dim: 1024
+  num_layers: 2
+  dropout: 0.1
+
+training:
+  batch_size: 128
+  learning_rate: 5.0e-4
+  weight_decay: 1.0e-4
+  max_epochs: 200
+  warmup_epochs: 5
+  scheduler: cosine
+  early_stopping_patience: 15
+  grad_clip: 1.0
+  num_workers: 4
+  prefetch_factor: 2
+  persistent_workers: true
+  seed: 42
+  preload: false
+
+  amp: true
+  amp_dtype: bfloat16
+  accumulation_steps: 1
+
+augmentation:
+  enabled: true
+  time_mask_ratio: 0.1
+  subcarrier_mask_ratio: 0.1
+  noise_std: 0.05
+  scale_min: 0.9
+  scale_max: 1.1
+  p: 0.5
+
+logging:
+  use_wandb: false
+  project_name: csi-text-alignment
+  log_every_n_steps: 50
+  checkpoint_dir: /home/sagemaker-user/Multimodal_CSI_Text/Model/checkpoints
+
+evaluation:
+  zero_shot: true
+  cross_task: true
+
+s3:
+  enabled: true
+  bucket: rnd-sagemaker
+  prefix: Multimodal_CSI_Text
+  sync_checkpoints: true
+  sync_evaluation: true
+  sync_dataset: true
