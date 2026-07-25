@@ -1229,6 +1229,10 @@ def _run_cross_domain_eval(
     cd_dir.mkdir(parents=True, exist_ok=True)
 
     base_cfg = _loader_config_from_experiment(config, task=task, dataset_name=dataset)
+    # Prototypes are encoded live from class texts, so the per-sample text
+    # embedding cache is unused here. Dropping it avoids a hard failure when
+    # that H5 is missing or was built with a different text encoder.
+    base_cfg.pop("text_embeddings_path", None)
     results: dict[str, Any] = {}
 
     for split_name in split_names:

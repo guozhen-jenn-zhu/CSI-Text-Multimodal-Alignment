@@ -64,6 +64,11 @@ EVAL_EMB_FILE="text_embeddings_${TEXT_ENCODER}.h5"
 
 export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
 
+# This pipeline is PyTorch-only, but `transformers` eagerly imports its
+# TensorFlow backend, which aborts when the environment has Keras 3 without
+# the tf-keras shim. Disabling the TF backend avoids that import entirely.
+export USE_TF="${USE_TF:-0}"
+
 ALL_CSIBENCH_TASKS=(har proximity user_id fall_detection motion_source)
 
 # ------------------------------------------------------------------
