@@ -34,6 +34,10 @@ from training.train import _apply_overrides, _merge_configs
 
 logger = logging.getLogger(__name__)
 
+# Split files defining held-out domains, relative to each task's ``splits/``
+# directory (resolved as ``<name>.json`` by MetadataLoader.get_split_ids).
+DEFAULT_CROSS_DOMAIN_SPLITS = ("cross_env", "cross_device")
+
 
 # ------------------------------------------------------------------
 # Model / config helpers (unchanged)
@@ -673,6 +677,37 @@ def _build_output_dir(
 # Summary / LaTeX generation
 # ------------------------------------------------------------------
 
+def _cross_domain_rows(
+    cross_domain: dict[str, Any],
+    iid_accuracy: Optional[float] = None,
+) -> tuple[list[str], list[str]]:
+    """Format cross-domain results as Markdown table rows.
+
+    Returns ``(scored_rows, unscored_notes)`` where the notes describe splits
+    that were skipped or errored.
+    """
+    rows: list[str] = []
+    notes: list[str] = []
+    for split_name, res in sorted(cross_domain.items()):
+        if not isinstance(res, dict):
+            continue
+        if "accuracy" not in res:
+            reason = res.get("skipped") or res.get("error") or "unavailable"
+            notes.append(f"- `{split_name}`: {reason}")
+            continue
+        delta = (
+            f"{res['accuracy'] - iid_accuracy:+.4f}"
+            if iid_accuracy is not None
+            else "n/a"
+        )
+        rows.append(
+            f"| {split_name} | {res['accuracy']:.4f} | "
+            f"{res.get('weighted_f1', 0):.4f} | {res.get('num_samples', 'n/a')} | "
+            f"{res.get('num_classes', 'n/a')} | {delta} |"
+        )
+    return rows, notes
+
+
 def generate_summary_md(
     results: dict[str, Any],
     checkpoint_path: str,
@@ -796,6 +831,24 @@ def generate_summary_md(
                 lines.append(f"| {pair} | {res['accuracy']:.4f} | {res.get('weighted_f1', 0):.4f} |")
             lines.append("")
 
+    cdom = results.get("cross_domain")
+    if cdom and isinstance(cdom, dict):
+        iid_acc = zs.get("accuracy") if isinstance(zs, dict) else None
+        rows, notes = _cross_domain_rows(cdom, iid_acc)
+        if rows or notes:
+            lines.extend(["## Cross-Domain Generalization", ""])
+            if iid_acc is not None:
+                lines.extend([f"IID test accuracy: {iid_acc:.4f}", ""])
+            if rows:
+                lines.extend([
+                    "| Split | Accuracy | Weighted F1 | Samples | Classes | Delta vs IID |",
+                    "|-------|----------|-------------|---------|---------|--------------|",
+                    *rows,
+                    "",
+                ])
+            if notes:
+                lines.extend([*notes, ""])
+
     viz = results.get("visualization")
     if viz and isinstance(viz, dict):
         lp = viz.get("linear_probe", {})
@@ -861,6 +914,29 @@ def generate_multitask_summary_md(
             for pair, res in sorted(valid.items()):
                 lines.append(f"| {pair} | {res['accuracy']:.4f} | {res.get('weighted_f1', 0):.4f} |")
             lines.append("")
+
+    has_cross_domain = False
+    for task_name, task_res in sorted(all_results.items()):
+        cdom = task_res.get("cross_domain", {})
+        if not isinstance(cdom, dict):
+            continue
+        iid_acc = task_res.get("zero_shot", {}).get("accuracy")
+        rows, notes = _cross_domain_rows(cdom, iid_acc)
+        if not rows and not notes:
+            continue
+        if not has_cross_domain:
+            lines.extend(["## Cross-Domain Generalization", ""])
+            has_cross_domain = True
+        lines.extend([f"### Task: {task_name}", ""])
+        if rows:
+            lines.extend([
+                "| Split | Accuracy | Weighted F1 | Samples | Classes | Delta vs IID |",
+                "|-------|----------|-------------|---------|---------|--------------|",
+                *rows,
+                "",
+            ])
+        if notes:
+            lines.extend([*notes, ""])
 
     has_lp = False
     for task_name, task_res in sorted(all_results.items()):
@@ -954,6 +1030,38 @@ def write_latex_tables(results: dict[str, Any], path: Path) -> None:
             "",
         ])
 
+    cdom = results.get("cross_domain", {})
+    valid_cdom = {k: v for k, v in cdom.items() if isinstance(v, dict) and "accuracy" in v}
+    if valid_cdom:
+        iid_acc = results.get("zero_shot", {}).get("accuracy")
+        lines.extend([
+            "\\begin{table}[t]",
+            "\\centering",
+            "\\begin{tabular}{lcccc}",
+            "\\hline",
+            "Split & Accuracy & Weighted F1 & $N$ & $\\Delta$ vs IID \\\\",
+            "\\hline",
+        ])
+        if iid_acc is not None:
+            lines.append(
+                f"IID test & {iid_acc:.4f} & "
+                f"{results.get('zero_shot', {}).get('weighted_f1', 0):.4f} & --- & --- \\\\"
+            )
+        for split_name, res in sorted(valid_cdom.items()):
+            safe_name = split_name.replace("_", "\\_")
+            delta = f"{res['accuracy'] - iid_acc:+.4f}" if iid_acc is not None else "---"
+            lines.append(
+                f"{safe_name} & {res['accuracy']:.4f} & "
+                f"{res.get('weighted_f1', 0):.4f} & {res.get('num_samples', '---')} & {delta} \\\\"
+            )
+        lines.extend([
+            "\\hline",
+            "\\end{tabular}",
+            "\\caption{Cross-domain (cross-device / cross-environment) generalization.}",
+            "\\end{table}",
+            "",
+        ])
+
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -1012,6 +1120,42 @@ def _write_multitask_latex_tables(all_results: dict[str, dict], path: Path) -> N
             "",
         ])
 
+    has_cdom = False
+    for task_name, task_res in sorted(all_results.items()):
+        cdom = task_res.get("cross_domain", {})
+        if not isinstance(cdom, dict):
+            continue
+        valid_cdom = {k: v for k, v in cdom.items() if isinstance(v, dict) and "accuracy" in v}
+        if not valid_cdom:
+            continue
+        if not has_cdom:
+            lines.extend([
+                "\\begin{table}[t]",
+                "\\centering",
+                "\\begin{tabular}{llccc}",
+                "\\hline",
+                "Task & Split & Accuracy & Weighted F1 & $\\Delta$ vs IID \\\\",
+                "\\hline",
+            ])
+            has_cdom = True
+        iid_acc = task_res.get("zero_shot", {}).get("accuracy")
+        safe_task = task_name.replace("_", "\\_")
+        for split_name, res in sorted(valid_cdom.items()):
+            safe_split = split_name.replace("_", "\\_")
+            delta = f"{res['accuracy'] - iid_acc:+.4f}" if iid_acc is not None else "---"
+            lines.append(
+                f"{safe_task} & {safe_split} & {res['accuracy']:.4f} & "
+                f"{res.get('weighted_f1', 0):.4f} & {delta} \\\\"
+            )
+    if has_cdom:
+        lines.extend([
+            "\\hline",
+            "\\end{tabular}",
+            "\\caption{Cross-domain (cross-device / cross-environment) generalization.}",
+            "\\end{table}",
+            "",
+        ])
+
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -1038,6 +1182,121 @@ def _resolve_registry_path(
     return None
 
 
+def _prune_phantom_classes(
+    class_texts: dict[int, list[str]],
+    loader: Optional[DataLoader],
+) -> dict[int, list[str]]:
+    """Drop text prototypes for classes that have no samples in *loader*.
+
+    Keeping prototypes for absent classes would let the classifier predict
+    labels that cannot occur, depressing accuracy for reasons unrelated to
+    the model.
+    """
+    ds = getattr(loader, "dataset", None) if loader is not None else None
+    if ds is None or not hasattr(ds, "int_labels"):
+        return dict(class_texts)
+
+    present = {int(x) for x in np.unique(ds.int_labels)}
+    phantom = set(class_texts) - present
+    if phantom:
+        logger.warning(
+            "Removing %d phantom class IDs from class_texts (no data): %s",
+            len(phantom), sorted(phantom),
+        )
+    return {k: v for k, v in class_texts.items() if k in present}
+
+
+def _run_cross_domain_eval(
+    model: torch.nn.Module,
+    text_encoder: torch.nn.Module,
+    text_projection: Optional[torch.nn.Module],
+    csi_projection: Optional[torch.nn.Module],
+    config: dict[str, Any],
+    dataset: str,
+    task: str,
+    class_texts: dict[int, list[str]],
+    out_dir: Path,
+    device: torch.device,
+    split_names: list[str],
+) -> dict[str, Any]:
+    """Zero-shot evaluation on held-out domain splits.
+
+    Each split file (e.g. ``splits/cross_env.json``) defines a test set drawn
+    from environments or devices unseen during training.  Comparing accuracy
+    here against the IID ``test`` split quantifies cross-domain degradation.
+    """
+    cd_dir = out_dir / "cross_domain"
+    cd_dir.mkdir(parents=True, exist_ok=True)
+
+    base_cfg = _loader_config_from_experiment(config, task=task, dataset_name=dataset)
+    results: dict[str, Any] = {}
+
+    for split_name in split_names:
+        try:
+            loader_cfg = {
+                **base_cfg,
+                "test_split": split_name,
+                "build_splits": ["test"],
+            }
+            loader = build_dataloaders(loader_cfg)["test"]
+
+            split_texts = _prune_phantom_classes(class_texts, loader)
+            if not split_texts:
+                raise ValueError(
+                    f"No class texts overlap the samples in split '{split_name}'"
+                )
+
+            metrics = _strip_heavy(
+                run_zero_shot_evaluation(
+                    model=model,
+                    dataloader=loader,
+                    class_texts=split_texts,
+                    text_encoder=text_encoder,
+                    text_projection=text_projection,
+                    csi_projection=csi_projection,
+                    device=str(device),
+                )
+            )
+            metrics["split"] = split_name
+            metrics["num_samples"] = len(loader.dataset)
+            metrics["num_classes"] = len(split_texts)
+            results[split_name] = metrics
+
+            logger.info(
+                "Cross-domain [%s / %s]: accuracy=%.4f  weighted_f1=%.4f  "
+                "(%d samples, %d classes)",
+                task, split_name, metrics.get("accuracy", float("nan")),
+                metrics.get("weighted_f1", float("nan")),
+                metrics["num_samples"], metrics["num_classes"],
+            )
+        except FileNotFoundError as e:
+            logger.warning(
+                "Cross-domain split '%s' not available for task %s: %s",
+                split_name, task, e,
+            )
+            results[split_name] = {"skipped": "split file not found", "detail": str(e)}
+        except Exception as e:
+            logger.warning(
+                "Cross-domain split '%s' failed for task %s: %s", split_name, task, e,
+            )
+            results[split_name] = {"error": str(e)}
+
+        _save_json(results[split_name], cd_dir / f"{split_name}.json")
+
+    num_ok = sum(1 for v in results.values() if "accuracy" in v)
+    _save_json(
+        {
+            "dataset": dataset,
+            "task": task,
+            "num_successful": num_ok,
+            "num_failed": len(results) - num_ok,
+            "splits": results,
+        },
+        cd_dir / "summary.json",
+    )
+    return results
+
+
 def _evaluate_single_task(
     model: torch.nn.Module,
     text_encoder: torch.nn.Module,
@@ -1051,6 +1310,7 @@ def _evaluate_single_task(
     registry_dir: Optional[str],
     device: torch.device,
     cross_task_dataset: Optional[str] = None,
+    cross_domain_splits: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Run all requested protocols for a single task and save results.
 
@@ -1065,25 +1325,23 @@ def _evaluate_single_task(
         "config": {"dataset": dataset, "task": task, "method": config.get("method")},
     }
 
-    needs_class_texts = any(p in eval_protocols for p in ("zero_shot", "visualization", "cross_task", "cross_dataset", "retrieval", "few_shot"))
+    iid_protocols = ("zero_shot", "visualization", "cross_task", "cross_dataset", "retrieval", "few_shot")
+    needs_iid_loaders = any(p in eval_protocols for p in iid_protocols)
+    needs_class_texts = needs_iid_loaders or "cross_domain" in eval_protocols
     class_texts: dict = {}
+    class_texts_full: dict = {}
     loaders: dict = {}
     if needs_class_texts:
         reg_path = _resolve_registry_path(task, registry_dir, config, dataset_name=dataset)
-        class_texts = build_class_texts(dataset, task, registry_path=reg_path)
+        class_texts_full = build_class_texts(dataset, task, registry_path=reg_path)
+        class_texts = dict(class_texts_full)
+
+    if needs_iid_loaders:
         loader_cfg = _loader_config_from_experiment(config, task=task, dataset_name=dataset)
         loaders = build_dataloaders(loader_cfg)
 
         # Remove phantom classes (text prototypes with zero data samples)
-        if loaders.get("test") and hasattr(loaders["test"].dataset, "int_labels"):
-            present = set(int(x) for x in np.unique(loaders["test"].dataset.int_labels))
-            phantom = set(class_texts.keys()) - present
-            if phantom:
-                logger.warning(
-                    "Removing %d phantom class IDs from class_texts "
-                    "(no test data): %s", len(phantom), phantom,
-                )
-                class_texts = {k: v for k, v in class_texts.items() if k in present}
+        class_texts = _prune_phantom_classes(class_texts, loaders.get("test"))
 
     # --- Zero-shot ---
     zs_full: Optional[dict[str, Any]] = None
@@ -1099,6 +1357,22 @@ def _evaluate_single_task(
         )
     if "zero_shot" in eval_protocols and zs_full is not None:
         results["zero_shot"] = _strip_heavy(zs_full)
+
+    # --- Cross-domain (cross-device / cross-environment) ---
+    if "cross_domain" in eval_protocols:
+        results["cross_domain"] = _run_cross_domain_eval(
+            model=model,
+            text_encoder=text_encoder,
+            text_projection=text_projection,
+            csi_projection=csi_projection,
+            config=config,
+            dataset=dataset,
+            task=task,
+            class_texts=class_texts_full,
+            out_dir=out_dir,
+            device=device,
+            split_names=list(cross_domain_splits or DEFAULT_CROSS_DOMAIN_SPLITS),
+        )
 
     # --- Ambient QA ---
     if "ambient_qa" in eval_protocols and dataset == "csibench":
@@ -1341,7 +1615,14 @@ def main() -> None:
         nargs="+",
         default=["zero_shot", "ambient_qa", "cross_task", "cross_dataset", "visualization"],
         help="Protocols to run. Options: zero_shot, ambient_qa, cross_task, "
-             "cross_dataset, visualization, retrieval, few_shot",
+             "cross_dataset, cross_domain, visualization, retrieval, few_shot",
+    )
+    parser.add_argument(
+        "--cross_domain_splits",
+        nargs="+",
+        default=list(DEFAULT_CROSS_DOMAIN_SPLITS),
+        help="Split names evaluated by the cross_domain protocol. Each must "
+             "resolve to <task_root>/splits/<name>.json.",
     )
     parser.add_argument("--output_dir", default="results", help="Directory for metrics and tables")
     parser.add_argument(
@@ -1427,6 +1708,7 @@ def main() -> None:
                     registry_dir=args.registry_dir,
                     device=device,
                     cross_task_dataset="all",
+                    cross_domain_splits=args.cross_domain_splits,
                 )
                 all_results[eval_task] = _deep_strip_heavy(_numpy_json(task_results))
             except Exception as e:
@@ -1475,6 +1757,7 @@ def main() -> None:
         eval_protocols=args.eval_protocols,
         registry_dir=args.registry_dir,
         device=device,
+        cross_domain_splits=args.cross_domain_splits,
     )
 
     # Save config snapshot

@@ -334,7 +334,7 @@ python scripts/run_evaluate.py \
 | `--eval_protocols` | all 5 protocols | Which protocols to run |
 | `--output_dir` | `results` | Output directory for metrics and figures |
 
-Available evaluation protocols: `zero_shot`, `ambient_qa`, `cross_task`, `cross_dataset`, `visualization`.
+Available evaluation protocols: `zero_shot`, `ambient_qa`, `cross_task`, `cross_dataset`, `cross_domain`, `visualization`, `retrieval`, `few_shot`.
 
 **Examples:**
 
@@ -356,6 +356,51 @@ Output files:
 - `metrics.json` -- all evaluation metrics in a single JSON
 - `tables.tex` -- LaTeX table for the paper
 - `tsne_embeddings.png` -- t-SNE visualization (if `visualization` protocol is run)
+
+---
+
+## Step 7: Cross-domain evaluation (cross-device / cross-environment)
+
+CSI-Bench tasks ship additional split files that hold out entire environments
+(`splits/cross_env.json`) and entire device types (`splits/cross_device.json`).
+The `cross_domain` protocol scores an **already-trained** checkpoint on those
+splits, so no retraining is needed:
+
+```bash
+python -m scripts.run_evaluate \
+    --checkpoint checkpoints/csibench-har-clip_infonce/best.pt \
+    --config configs/experiment/sagemaker_g5.yaml \
+    --eval_protocols zero_shot cross_domain \
+    --output_dir results/csibench_har_cross_domain \
+    --no_timestamp
+```
+
+Including `zero_shot` in the same run is recommended: the IID test accuracy is
+then reported alongside each domain split so `summary.md` and `tables.tex` can
+show the degradation (`Delta vs IID`).
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--cross_domain_splits` | `cross_env cross_device` | Split names to evaluate; each resolves to `<task_root>/splits/<name>.json` |
+
+Splits that do not exist for a task are recorded as skipped rather than failing
+the run.
+
+To sweep all five CSI-Bench tasks:
+
+```bash
+# Uses the SageMaker checkpoint/results layout by default
+WITH_IID=1 bash scripts/run_cross_domain_eval.sh
+
+# A subset of tasks, one domain axis, and a local layout
+TASK=har,proximity SPLITS=cross_env \
+REPO_ROOT=$PWD DATA_ROOT=/data/Dataset MODEL_ROOT=/data/Model \
+    bash scripts/run_cross_domain_eval.sh
+```
+
+Additional output files:
+- `cross_domain/<split>.json` -- per-split metrics
+- `cross_domain/summary.json` -- all splits plus success/failure counts
 
 ---
 
@@ -424,7 +469,8 @@ CSI-Text-Multimodal-Alignment/
 │   ├── run_ablations.py     # Ablation studies
 │   ├── generate_all_texts.py  # Text pair registry generation
 │   ├── preprocess_to_consolidated.py  # H5 consolidation for fast I/O
-│   └── run_evaluate.py      # Evaluation protocol runner
+│   ├── run_evaluate.py      # Evaluation protocol runner
+│   └── run_cross_domain_eval.sh  # Cross-device / cross-environment sweep
 ├── datasheet.md             # Datasheet for Datasets (Gebru et al.)
 ├── croissant.json           # Croissant metadata (NeurIPS artifact)
 ├── requirements.txt
@@ -456,6 +502,7 @@ All methods are selected via `configs/method/<name>.yaml` and `method=` in the e
 | **Ambient QA** | `evaluation/ambient_qa.py` | Multiple-choice scene questions (activity, proximity, identity) |
 | **Cross-task transfer** | `evaluation/cross_task_transfer.py` | Zero-shot on a held-out task using target-task text prototypes |
 | **Cross-dataset transfer** | `evaluation/cross_task_transfer.py` | Zero-shot on a different dataset entirely |
+| **Cross-domain generalization** | `scripts/run_evaluate.py` (`cross_domain`) | Zero-shot on held-out environments / devices via the `cross_env` and `cross_device` splits |
 | **Embedding analysis** | `evaluation/visualization.py` | t-SNE/UMAP visualization + linear probe accuracy |
 
 ---
