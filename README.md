@@ -334,7 +334,7 @@ python scripts/run_evaluate.py \
 | `--eval_protocols` | all 5 protocols | Which protocols to run |
 | `--output_dir` | `results` | Output directory for metrics and figures |
 
-Available evaluation protocols: `zero_shot`, `ambient_qa`, `cross_task`, `cross_dataset`, `cross_domain`, `visualization`, `retrieval`, `few_shot`.
+Available evaluation protocols: `zero_shot`, `ambient_qa`, `cross_task`, `cross_dataset`, `cross_domain`, `cross_domain_few_shot`, `visualization`, `retrieval`, `few_shot`.
 
 **Examples:**
 
@@ -401,6 +401,69 @@ REPO_ROOT=$PWD DATA_ROOT=/data/Dataset MODEL_ROOT=/data/Model \
 Additional output files:
 - `cross_domain/<split>.json` -- per-split metrics
 - `cross_domain/summary.json` -- all splits plus success/failure counts
+
+### Cross-domain few-shot fine-tuning
+
+The `cross_domain_few_shot` protocol asks how much of the domain gap a handful
+of labelled target-domain samples closes. For each split it draws K samples per
+class as a support set, fine-tunes the CSI branch with a fresh linear
+classification head (cross-entropy), and scores the *remaining* samples of that
+same split, averaged over several random draws:
+
+```bash
+python -m scripts.run_evaluate \
+    --checkpoint checkpoints/csibench-har-clip_infonce/best.pt \
+    --config configs/experiment/sagemaker_g5.yaml \
+    --eval_protocols zero_shot cross_domain cross_domain_few_shot \
+    --cross_domain_shots 1 5 10 20 \
+    --cross_domain_ft_scopes projection encoder \
+    --output_dir results/csibench_har_cross_domain \
+    --no_timestamp
+```
+
+Two adaptation scopes are reported side by side:
+
+| Scope | Trained | Frozen |
+|-------|---------|--------|
+| `projection` | `csi_projection` + linear head | CSI encoder |
+| `encoder` | CSI encoder + `csi_projection` + linear head | -- |
+
+The split's zero-shot accuracy is included as the K=0 row, so `summary.md` and
+`tables.tex` show the gain from each shot count directly. A shot count is
+skipped when the smallest class in the split has no more than K samples (there
+would be no query samples left for it).
+
+Every run starts from a fresh copy of the pretrained weights, and both scopes
+see the same support draw for a given shot count and trial, so the two columns
+are directly comparable. BatchNorm layers stay in eval mode during fine-tuning:
+a support set holds as few as two samples, so batch statistics estimated from it
+are unusable, and freezing them keeps any gain attributable to the labelled
+shots rather than to unsupervised BatchNorm adaptation.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--cross_domain_shots` | `1 5 10 20` | Labelled samples per class used for adaptation |
+| `--cross_domain_ft_scopes` | `projection encoder` | Which scopes to fine-tune |
+| `--cross_domain_ft_epochs` | `100` | Full-batch gradient steps on the support set |
+| `--cross_domain_ft_lr` | `1e-3` | Adam learning rate |
+| `--cross_domain_ft_weight_decay` | `1e-4` | Adam weight decay |
+| `--cross_domain_ft_trials` | `5` | Random support draws per shot count |
+
+The sweep script exposes the same knobs; cost scales with
+`shots x scopes x trials x splits`, so trim them for a quick look:
+
+```bash
+# All tasks, both scopes, default sweep
+FEW_SHOT=1 WITH_IID=1 bash scripts/run_cross_domain_eval.sh
+
+# Cheaper: projection head only, two shot counts, three trials
+FEW_SHOT=1 SHOTS="5 20" FT_SCOPES="projection" FT_TRIALS=3 \
+    bash scripts/run_cross_domain_eval.sh
+```
+
+Additional output files:
+- `cross_domain_few_shot/<split>.json` -- 0-shot baseline plus per-scope, per-K accuracy/F1 (mean and std)
+- `cross_domain_few_shot/summary.json` -- all splits plus the sweep settings used
 
 ---
 
@@ -503,6 +566,7 @@ All methods are selected via `configs/method/<name>.yaml` and `method=` in the e
 | **Cross-task transfer** | `evaluation/cross_task_transfer.py` | Zero-shot on a held-out task using target-task text prototypes |
 | **Cross-dataset transfer** | `evaluation/cross_task_transfer.py` | Zero-shot on a different dataset entirely |
 | **Cross-domain generalization** | `scripts/run_evaluate.py` (`cross_domain`) | Zero-shot on held-out environments / devices via the `cross_env` and `cross_device` splits |
+| **Cross-domain few-shot adaptation** | `evaluation/few_shot_finetune.py` (`cross_domain_few_shot`) | Accuracy recovered on a held-out domain after fine-tuning the CSI branch on K labelled samples per class |
 | **Embedding analysis** | `evaluation/visualization.py` | t-SNE/UMAP visualization + linear probe accuracy |
 
 ---

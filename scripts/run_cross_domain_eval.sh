@@ -27,6 +27,14 @@
 #   # Only one domain axis
 #   SPLITS="cross_env" bash scripts/run_cross_domain_eval.sh
 #
+#   # Also adapt on a few labelled target-domain samples and report how much
+#   # accuracy recovers at K = 1/5/10/20 shots
+#   FEW_SHOT=1 bash scripts/run_cross_domain_eval.sh
+#
+#   # Cheaper sweep: projection head only, fewer shots and trials
+#   FEW_SHOT=1 SHOTS="5 20" FT_SCOPES="projection" FT_TRIALS=3 \
+#       bash scripts/run_cross_domain_eval.sh
+#
 #   # Point at a local checkout / dataset instead of the SageMaker layout
 #   REPO_ROOT=$PWD DATA_ROOT=/data/Dataset MODEL_ROOT=/data/Model \
 #       bash scripts/run_cross_domain_eval.sh
@@ -43,6 +51,14 @@ ENCODER="${ENCODER:-resnet18_1d}"
 TEXT_ENCODER="${TEXT_ENCODER:-clip_vit_b32}"
 SPLITS="${SPLITS:-cross_env cross_device}"
 WITH_IID="${WITH_IID:-0}"
+
+# Few-shot fine-tuning on the held-out domains (off by default: cost scales
+# with shots x scopes x trials x splits).
+FEW_SHOT="${FEW_SHOT:-0}"
+SHOTS="${SHOTS:-1 5 10 20}"
+FT_SCOPES="${FT_SCOPES:-projection encoder}"
+FT_EPOCHS="${FT_EPOCHS:-100}"
+FT_TRIALS="${FT_TRIALS:-5}"
 
 REPO_ROOT="${REPO_ROOT:-/home/sagemaker-user/CSI-Text-Multimodal-Alignment}"
 DATA_ROOT="${DATA_ROOT:-/home/sagemaker-user/Multimodal_CSI_Text/Dataset}"
@@ -85,6 +101,8 @@ resolve_task_root() {
 }
 
 read -ra SPLIT_LIST <<< "$SPLITS"
+read -ra SHOT_LIST <<< "$SHOTS"
+read -ra SCOPE_LIST <<< "$FT_SCOPES"
 
 # ------------------------------------------------------------------
 # Evaluate one task on the cross-domain splits
@@ -109,11 +127,25 @@ evaluate_cross_domain() {
         protocols=(zero_shot cross_domain)
     fi
 
+    local few_shot_args=()
+    if [[ "$FEW_SHOT" == "1" ]]; then
+        protocols+=(cross_domain_few_shot)
+        few_shot_args=(
+            --cross_domain_shots "${SHOT_LIST[@]}"
+            --cross_domain_ft_scopes "${SCOPE_LIST[@]}"
+            --cross_domain_ft_epochs "$FT_EPOCHS"
+            --cross_domain_ft_trials "$FT_TRIALS"
+        )
+    fi
+
     log "Cross-domain eval: ${DATASET}/${task_name}"
     echo "  checkpoint: ${ckpt_path}"
     echo "  task_root:  ${task_root}"
     echo "  splits:     ${SPLIT_LIST[*]}"
     echo "  protocols:  ${protocols[*]}"
+    if [[ "$FEW_SHOT" == "1" ]]; then
+        echo "  shots:      ${SHOT_LIST[*]}  scopes: ${SCOPE_LIST[*]}  trials: ${FT_TRIALS}"
+    fi
     echo "  results:    ${results_dir}"
 
     cd "$REPO_ROOT"
@@ -126,6 +158,7 @@ evaluate_cross_domain() {
             "text_embeddings_path=${reg_dir}/${EVAL_EMB_FILE}" \
         --eval_protocols "${protocols[@]}" \
         --cross_domain_splits "${SPLIT_LIST[@]}" \
+        "${few_shot_args[@]+"${few_shot_args[@]}"}" \
         --registry_dir "$(dirname "$reg_dir")" \
         --data_root "$DATA_ROOT" \
         --output_dir "$results_dir" \
@@ -156,6 +189,22 @@ for split, res in sorted(metrics.get("cross_domain", {}).items()):
         f"  [{task}] {split}: accuracy={acc:.4f}  "
         f"f1={res.get('weighted_f1', 0):.4f}  n={res.get('num_samples', '?')}{delta}"
     )
+
+for split, res in sorted(metrics.get("cross_domain_few_shot", {}).items()):
+    if not isinstance(res, dict):
+        continue
+    ft = res.get("finetune")
+    if not ft:
+        print(f"  [{task}] {split} few-shot: {res.get('skipped') or res.get('error')}")
+        continue
+    base = (res.get("zero_shot_baseline") or {}).get("accuracy")
+    base_str = f"{base:.4f}" if isinstance(base, float) else "n/a"
+    for scope, per_k in sorted(ft.items()):
+        entries = sorted(per_k.values(), key=lambda m: m["k"])
+        cells = "  ".join(
+            f"K={m['k']}:{m['accuracy_mean']:.4f}" for m in entries
+        )
+        print(f"  [{task}] {split} few-shot [{scope}]: K=0:{base_str}  {cells}")
 PY
     fi
 }

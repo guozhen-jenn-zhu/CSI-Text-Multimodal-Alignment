@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import os
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -31,11 +32,13 @@ from evaluation import (
     CrossDatasetTransfer,
     CrossTaskTransfer,
     EmbeddingVisualizer,
+    FewShotFinetune,
     FewShotLinearProbe,
     LinearProbe,
     run_retrieval_evaluation,
     run_zero_shot_evaluation,
 )
+from evaluation.composition import SCENE_TASK_ATTRIBUTES, normalize_attribute_value
 from evaluation.cross_task_transfer import TASK_TO_DATASET
 from models.alignment import build_alignment_model
 from models.encoders import ProjectionHead, build_csi_encoder, build_text_encoder
@@ -717,6 +720,109 @@ def _cross_domain_rows(
     return rows, notes
 
 
+FT_SCOPE_LABELS = {
+    "projection": "Projection-only",
+    "encoder": "Full encoder",
+}
+
+
+def _ft_scope_label(scope: str) -> str:
+    return FT_SCOPE_LABELS.get(scope, scope)
+
+
+def _cross_domain_few_shot_view(
+    split_res: dict[str, Any],
+) -> Optional[tuple[list[str], list[int], Optional[float], dict[str, dict[int, dict]]]]:
+    """Normalise one split's few-shot result into ``(scopes, ks, baseline, table)``.
+
+    ``table[scope][k]`` holds the metric dict.  Returns ``None`` when the
+    split produced no fine-tuning numbers.
+    """
+    if not isinstance(split_res, dict):
+        return None
+    ft = split_res.get("finetune")
+    if not isinstance(ft, dict):
+        return None
+
+    table: dict[str, dict[int, dict]] = {}
+    ks: set[int] = set()
+    for scope, per_k in ft.items():
+        if not isinstance(per_k, dict):
+            continue
+        by_k: dict[int, dict] = {}
+        for m in per_k.values():
+            if isinstance(m, dict) and "accuracy_mean" in m:
+                by_k[int(m["k"])] = m
+                ks.add(int(m["k"]))
+        if by_k:
+            table[scope] = by_k
+
+    if not table:
+        return None
+
+    ordered = [s for s in FT_SCOPE_LABELS if s in table]
+    ordered += [s for s in sorted(table) if s not in ordered]
+    baseline = (split_res.get("zero_shot_baseline") or {}).get("accuracy")
+    return ordered, sorted(ks), baseline, table
+
+
+def _cross_domain_few_shot_md(cd_fs: dict[str, Any], heading: str) -> list[str]:
+    """Render the cross-domain few-shot section as Markdown lines."""
+    body: list[str] = []
+    notes: list[str] = []
+
+    for split_name, split_res in sorted(cd_fs.items()):
+        view = _cross_domain_few_shot_view(split_res)
+        if view is None:
+            if isinstance(split_res, dict):
+                reason = split_res.get("skipped") or split_res.get("error")
+                if reason:
+                    notes.append(f"- `{split_name}`: {reason}")
+            continue
+        scopes, ks, baseline, table = view
+
+        body.extend([
+            f"### Split: {split_name}",
+            "",
+            "| K | " + " | ".join(_ft_scope_label(s) for s in scopes) + " |",
+            "|---|" + "|".join(["---"] * len(scopes)) + "|",
+        ])
+        if baseline is not None:
+            body.append(
+                "| 0 (zero-shot) | "
+                + " | ".join(f"{baseline:.4f}" for _ in scopes)
+                + " |"
+            )
+        for k in ks:
+            cells = []
+            for scope in scopes:
+                m = table[scope].get(k)
+                if m is None:
+                    cells.append("---")
+                    continue
+                cell = f"{m['accuracy_mean']:.4f} +/- {m.get('accuracy_std', 0):.4f}"
+                if baseline is not None:
+                    cell += f" ({m['accuracy_mean'] - baseline:+.4f})"
+                cells.append(cell)
+            body.append(f"| {k} | " + " | ".join(cells) + " |")
+        body.append("")
+
+    if not body and not notes:
+        return []
+
+    lines = [heading, ""]
+    if body:
+        lines.extend([
+            "Accuracy on the remaining samples of the held-out split "
+            "(mean +/- std over trials; delta is versus the 0-shot baseline).",
+            "",
+            *body,
+        ])
+    if notes:
+        lines.extend([*notes, ""])
+    return lines
+
+
 def generate_summary_md(
     results: dict[str, Any],
     checkpoint_path: str,
@@ -858,6 +964,12 @@ def generate_summary_md(
             if notes:
                 lines.extend([*notes, ""])
 
+    cd_fs = results.get("cross_domain_few_shot")
+    if cd_fs and isinstance(cd_fs, dict):
+        lines.extend(
+            _cross_domain_few_shot_md(cd_fs, "## Cross-Domain Few-Shot Fine-Tuning")
+        )
+
     viz = results.get("visualization")
     if viz and isinstance(viz, dict):
         lp = viz.get("linear_probe", {})
@@ -946,6 +1058,20 @@ def generate_multitask_summary_md(
             ])
         if notes:
             lines.extend([*notes, ""])
+
+    has_cd_fs = False
+    for task_name, task_res in sorted(all_results.items()):
+        cd_fs = task_res.get("cross_domain_few_shot", {})
+        if not isinstance(cd_fs, dict):
+            continue
+        section = _cross_domain_few_shot_md(cd_fs, f"### Task: {task_name}")
+        if not section:
+            continue
+        if not has_cd_fs:
+            lines.extend(["## Cross-Domain Few-Shot Fine-Tuning", ""])
+            has_cd_fs = True
+        # Split tables are one level deeper under the per-task heading.
+        lines.extend(s.replace("### Split:", "#### Split:", 1) for s in section)
 
     has_lp = False
     for task_name, task_res in sorted(all_results.items()):
@@ -1071,7 +1197,101 @@ def write_latex_tables(results: dict[str, Any], path: Path) -> None:
             "",
         ])
 
+    lines.extend(
+        _cross_domain_few_shot_latex(results.get("cross_domain_few_shot", {}))
+    )
+
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _latex_escape(text: str) -> str:
+    return text.replace("_", "\\_")
+
+
+def _cross_domain_few_shot_latex_rows(
+    cd_fs: dict[str, Any],
+    scope_order: list[str],
+    task_name: Optional[str] = None,
+) -> list[str]:
+    """LaTeX body rows for the cross-domain few-shot table.
+
+    ``scope_order`` fixes the column layout so rows from several tasks can
+    share one table.
+    """
+    rows: list[str] = []
+    prefix = f"{_latex_escape(task_name)} & " if task_name else ""
+
+    for split_name, split_res in sorted(cd_fs.items()):
+        view = _cross_domain_few_shot_view(split_res)
+        if view is None:
+            continue
+        _, ks, baseline, table = view
+        safe_split = _latex_escape(split_name)
+
+        if baseline is not None:
+            rows.append(
+                f"{prefix}{safe_split} & 0 & "
+                + " & ".join(f"{baseline:.4f}" for _ in scope_order)
+                + " \\\\"
+            )
+        for k in ks:
+            cells = []
+            for scope in scope_order:
+                m = table.get(scope, {}).get(k)
+                cells.append(
+                    "---" if m is None
+                    else f"{m['accuracy_mean']:.4f} $\\pm$ {m.get('accuracy_std', 0):.4f}"
+                )
+            rows.append(f"{prefix}{safe_split} & {k} & " + " & ".join(cells) + " \\\\")
+
+    return rows
+
+
+def _cross_domain_few_shot_scopes(cd_fs: dict[str, Any]) -> list[str]:
+    """Union of fine-tuning scopes present, in a stable display order."""
+    found: set[str] = set()
+    for split_res in cd_fs.values():
+        view = _cross_domain_few_shot_view(split_res)
+        if view is not None:
+            found.update(view[0])
+    ordered = [s for s in FT_SCOPE_LABELS if s in found]
+    return ordered + sorted(found - set(ordered))
+
+
+def _cross_domain_few_shot_table(
+    rows: list[str], scope_order: list[str], with_task_column: bool,
+) -> list[str]:
+    if not rows:
+        return []
+    col_spec = ("lll" if with_task_column else "ll") + "c" * len(scope_order)
+    header_prefix = "Task & Split & $K$" if with_task_column else "Split & $K$"
+    header = (
+        header_prefix + " & "
+        + " & ".join(_ft_scope_label(s) for s in scope_order) + " \\\\"
+    )
+    return [
+        "\\begin{table}[t]",
+        "\\centering",
+        f"\\begin{{tabular}}{{{col_spec}}}",
+        "\\hline",
+        header,
+        "\\hline",
+        *rows,
+        "\\hline",
+        "\\end{tabular}",
+        "\\caption{Cross-domain few-shot fine-tuning accuracy "
+        "(mean $\\pm$ std over trials; $K=0$ is the zero-shot baseline).}",
+        "\\end{table}",
+        "",
+    ]
+
+
+def _cross_domain_few_shot_latex(cd_fs: dict[str, Any]) -> list[str]:
+    if not isinstance(cd_fs, dict) or not cd_fs:
+        return []
+    scope_order = _cross_domain_few_shot_scopes(cd_fs)
+    rows = _cross_domain_few_shot_latex_rows(cd_fs, scope_order)
+    return _cross_domain_few_shot_table(rows, scope_order, with_task_column=False)
 
 
 def _write_multitask_latex_tables(all_results: dict[str, dict], path: Path) -> None:
@@ -1164,6 +1384,24 @@ def _write_multitask_latex_tables(all_results: dict[str, dict], path: Path) -> N
             "\\end{table}",
             "",
         ])
+
+    all_cd_fs = {
+        t: r.get("cross_domain_few_shot", {})
+        for t, r in all_results.items()
+        if isinstance(r.get("cross_domain_few_shot"), dict)
+    }
+    if all_cd_fs:
+        scope_order = _cross_domain_few_shot_scopes(
+            {f"{t}/{s}": v for t, cd in all_cd_fs.items() for s, v in cd.items()}
+        )
+        fs_rows: list[str] = []
+        for task_name, cd_fs in sorted(all_cd_fs.items()):
+            fs_rows.extend(
+                _cross_domain_few_shot_latex_rows(cd_fs, scope_order, task_name)
+            )
+        lines.extend(
+            _cross_domain_few_shot_table(fs_rows, scope_order, with_task_column=True)
+        )
 
     path.write_text("\n".join(lines), encoding="utf-8")
 
@@ -1306,6 +1544,206 @@ def _run_cross_domain_eval(
     return results
 
 
+def _gather_split_tensors(loader: DataLoader) -> tuple[torch.Tensor, np.ndarray]:
+    """Materialise a loader's CSI samples and integer labels on the CPU."""
+    csi_chunks: list[torch.Tensor] = []
+    label_chunks: list[np.ndarray] = []
+    for batch in loader:
+        csi_chunks.append(batch["csi"].cpu())
+        label_chunks.append(batch["labels"].cpu().numpy())
+    if not csi_chunks:
+        raise ValueError(
+            "Split contains no usable samples (check that the H5 files "
+            "referenced by the split file exist)"
+        )
+    csi = torch.cat(csi_chunks, dim=0)
+    labels = np.concatenate(label_chunks, axis=0)
+
+    n_bytes = csi.element_size() * csi.nelement()
+    if n_bytes > 8 * 1024 ** 3:
+        logger.warning(
+            "Held-out split occupies %.1f GiB of host RAM; consider reducing "
+            "target_time_steps or evaluating fewer splits at once.",
+            n_bytes / 1024 ** 3,
+        )
+    return csi, labels
+
+
+def _tensor_batches(
+    csi: torch.Tensor, labels: np.ndarray, batch_size: int,
+) -> list[dict[str, Any]]:
+    """Wrap in-memory tensors as loader-style batches.
+
+    Lets the zero-shot baseline reuse the samples already gathered for
+    fine-tuning instead of reading every H5 file a second time.  The slices
+    are views, so this costs no extra memory.
+    """
+    return [
+        {
+            "csi": csi[start : start + batch_size],
+            "labels": torch.from_numpy(labels[start : start + batch_size]),
+        }
+        for start in range(0, len(labels), batch_size)
+    ]
+
+
+def _run_cross_domain_few_shot(
+    model: torch.nn.Module,
+    text_encoder: torch.nn.Module,
+    text_projection: Optional[torch.nn.Module],
+    csi_projection: Optional[torch.nn.Module],
+    config: dict[str, Any],
+    dataset: str,
+    task: str,
+    class_texts: dict[int, list[str]],
+    out_dir: Path,
+    device: torch.device,
+    split_names: list[str],
+    ft_cfg: dict[str, Any],
+) -> dict[str, Any]:
+    """Few-shot fine-tuning on each held-out domain split.
+
+    For every split, K labelled samples per class are used to adapt the CSI
+    branch (with a fresh linear head) and the remaining samples are scored.
+    The split's zero-shot accuracy is recorded alongside as the K=0 baseline.
+    """
+    fs_dir = out_dir / "cross_domain_few_shot"
+    fs_dir.mkdir(parents=True, exist_ok=True)
+
+    if csi_projection is None:
+        csi_projection = getattr(model, "csi_projection", None)
+
+    base_cfg = _loader_config_from_experiment(config, task=task, dataset_name=dataset)
+    results: dict[str, Any] = {}
+
+    for split_name in split_names:
+        try:
+            loader_cfg = {
+                **base_cfg,
+                "test_split": split_name,
+                "build_splits": ["test"],
+            }
+            loader = build_dataloaders(loader_cfg)["test"]
+            split_texts = _prune_phantom_classes(class_texts, loader)
+            batch_size = int(base_cfg.get("batch_size", 128))
+
+            # Read the split once; the baseline and the fine-tuning sweep
+            # both work off these tensors.
+            csi, labels = _gather_split_tensors(loader)
+            num_classes = int(len(np.unique(labels)))
+
+            if num_classes < 2:
+                logger.warning(
+                    "Split '%s' of task %s has a single class; few-shot "
+                    "classification needs at least two.", split_name, task,
+                )
+                results[split_name] = {
+                    "skipped": "fewer than 2 classes present in the split",
+                    "split": split_name,
+                    "num_samples": int(len(labels)),
+                    "num_classes": num_classes,
+                }
+                _save_json(_numpy_json(results[split_name]), fs_dir / f"{split_name}.json")
+                continue
+
+            # The baseline needs the text branch; a failure there must not
+            # discard the fine-tuning numbers, which use no text at all.
+            baseline: dict[str, Any] = {}
+            if split_texts:
+                try:
+                    zs = _strip_heavy(
+                        run_zero_shot_evaluation(
+                            model=model,
+                            dataloader=_tensor_batches(csi, labels, batch_size),
+                            class_texts=split_texts,
+                            text_encoder=text_encoder,
+                            text_projection=text_projection,
+                            csi_projection=csi_projection,
+                            device=str(device),
+                        )
+                    )
+                    baseline = {
+                        "accuracy": zs.get("accuracy"),
+                        "weighted_f1": zs.get("weighted_f1"),
+                    }
+                except Exception as e:
+                    logger.warning(
+                        "Zero-shot baseline failed for split '%s': %s", split_name, e,
+                    )
+                    baseline = {"error": str(e)}
+            else:
+                logger.warning(
+                    "No class texts overlap split '%s'; reporting fine-tuning "
+                    "without a 0-shot baseline.", split_name,
+                )
+
+            finetuner = FewShotFinetune(
+                shots=ft_cfg.get("shots", (1, 5, 10, 20)),
+                scopes=ft_cfg.get("scopes", ("projection", "encoder")),
+                n_trials=ft_cfg.get("n_trials", 5),
+                epochs=ft_cfg.get("epochs", 100),
+                lr=ft_cfg.get("lr", 1e-3),
+                weight_decay=ft_cfg.get("weight_decay", 1e-4),
+                batch_size=batch_size,
+                seed=ft_cfg.get("seed", 42),
+            )
+            ft_metrics = finetuner.evaluate(
+                csi=csi,
+                labels=labels,
+                encoder=model.csi_encoder,
+                projection=csi_projection,
+                device=device,
+            )
+
+            results[split_name] = {
+                "split": split_name,
+                "num_samples": int(len(labels)),
+                "num_classes": num_classes,
+                "zero_shot_baseline": baseline,
+                "finetune": ft_metrics,
+            }
+
+            for scope, per_k in ft_metrics.items():
+                for k_label, m in sorted(per_k.items(), key=lambda kv: kv[1]["k"]):
+                    logger.info(
+                        "Cross-domain few-shot [%s / %s / %s] %s: "
+                        "accuracy=%.4f +/- %.4f",
+                        task, split_name, scope, k_label,
+                        m["accuracy_mean"], m["accuracy_std"],
+                    )
+        except FileNotFoundError as e:
+            logger.warning(
+                "Cross-domain few-shot split '%s' not available for task %s: %s",
+                split_name, task, e,
+            )
+            results[split_name] = {"skipped": "split file not found", "detail": str(e)}
+        except Exception as e:
+            logger.warning(
+                "Cross-domain few-shot split '%s' failed for task %s: %s",
+                split_name, task, e,
+            )
+            results[split_name] = {"error": str(e)}
+
+        _save_json(_numpy_json(results[split_name]), fs_dir / f"{split_name}.json")
+
+    num_ok = sum(1 for v in results.values() if "finetune" in v)
+    _save_json(
+        {
+            "dataset": dataset,
+            "task": task,
+            "shots": list(ft_cfg.get("shots", (1, 5, 10, 20))),
+            "scopes": list(ft_cfg.get("scopes", ("projection", "encoder"))),
+            "n_trials": ft_cfg.get("n_trials", 5),
+            "epochs": ft_cfg.get("epochs", 100),
+            "num_successful": num_ok,
+            "num_failed": len(results) - num_ok,
+            "splits": _numpy_json(results),
+        },
+        fs_dir / "summary.json",
+    )
+    return results
+
+
 def _evaluate_single_task(
     model: torch.nn.Module,
     text_encoder: torch.nn.Module,
@@ -1320,6 +1758,7 @@ def _evaluate_single_task(
     device: torch.device,
     cross_task_dataset: Optional[str] = None,
     cross_domain_splits: Optional[list[str]] = None,
+    cross_domain_ft_cfg: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Run all requested protocols for a single task and save results.
 
@@ -1336,7 +1775,9 @@ def _evaluate_single_task(
 
     iid_protocols = ("zero_shot", "visualization", "cross_task", "cross_dataset", "retrieval", "few_shot")
     needs_iid_loaders = any(p in eval_protocols for p in iid_protocols)
-    needs_class_texts = needs_iid_loaders or "cross_domain" in eval_protocols
+    needs_class_texts = needs_iid_loaders or any(
+        p in eval_protocols for p in ("cross_domain", "cross_domain_few_shot")
+    )
     class_texts: dict = {}
     class_texts_full: dict = {}
     loaders: dict = {}
@@ -1381,6 +1822,23 @@ def _evaluate_single_task(
             out_dir=out_dir,
             device=device,
             split_names=list(cross_domain_splits or DEFAULT_CROSS_DOMAIN_SPLITS),
+        )
+
+    # --- Cross-domain few-shot fine-tuning ---
+    if "cross_domain_few_shot" in eval_protocols:
+        results["cross_domain_few_shot"] = _run_cross_domain_few_shot(
+            model=model,
+            text_encoder=text_encoder,
+            text_projection=text_projection,
+            csi_projection=csi_projection,
+            config=config,
+            dataset=dataset,
+            task=task,
+            class_texts=class_texts_full,
+            out_dir=out_dir,
+            device=device,
+            split_names=list(cross_domain_splits or DEFAULT_CROSS_DOMAIN_SPLITS),
+            ft_cfg=cross_domain_ft_cfg or {},
         )
 
     # --- Ambient QA ---
@@ -1624,14 +2082,45 @@ def main() -> None:
         nargs="+",
         default=["zero_shot", "ambient_qa", "cross_task", "cross_dataset", "visualization"],
         help="Protocols to run. Options: zero_shot, ambient_qa, cross_task, "
-             "cross_dataset, cross_domain, visualization, retrieval, few_shot",
+             "cross_dataset, cross_domain, cross_domain_few_shot, "
+             "visualization, retrieval, few_shot",
     )
     parser.add_argument(
         "--cross_domain_splits",
         nargs="+",
         default=list(DEFAULT_CROSS_DOMAIN_SPLITS),
-        help="Split names evaluated by the cross_domain protocol. Each must "
-             "resolve to <task_root>/splits/<name>.json.",
+        help="Split names evaluated by the cross_domain and "
+             "cross_domain_few_shot protocols. Each must resolve to "
+             "<task_root>/splits/<name>.json.",
+    )
+    parser.add_argument(
+        "--cross_domain_shots",
+        nargs="+",
+        type=int,
+        default=[1, 5, 10, 20],
+        help="Labelled samples per class used to adapt on each held-out "
+             "domain split (cross_domain_few_shot).",
+    )
+    parser.add_argument(
+        "--cross_domain_ft_scopes",
+        nargs="+",
+        default=["projection", "encoder"],
+        help="Fine-tuning scopes: 'projection' trains csi_projection + head "
+             "with a frozen encoder, 'encoder' trains the whole CSI branch.",
+    )
+    parser.add_argument(
+        "--cross_domain_ft_epochs",
+        type=int,
+        default=100,
+        help="Full-batch gradient steps on the support set per fine-tune run.",
+    )
+    parser.add_argument("--cross_domain_ft_lr", type=float, default=1e-3)
+    parser.add_argument("--cross_domain_ft_weight_decay", type=float, default=1e-4)
+    parser.add_argument(
+        "--cross_domain_ft_trials",
+        type=int,
+        default=5,
+        help="Random support draws per shot count; results are mean +/- std.",
     )
     parser.add_argument("--output_dir", default="results", help="Directory for metrics and tables")
     parser.add_argument(
@@ -1660,6 +2149,15 @@ def main() -> None:
              "Produces per-task metrics under output_dir/<task>/.",
     )
     args = parser.parse_args()
+
+    cross_domain_ft_cfg = {
+        "shots": tuple(args.cross_domain_shots),
+        "scopes": tuple(args.cross_domain_ft_scopes),
+        "n_trials": args.cross_domain_ft_trials,
+        "epochs": args.cross_domain_ft_epochs,
+        "lr": args.cross_domain_ft_lr,
+        "weight_decay": args.cross_domain_ft_weight_decay,
+    }
 
     with open(args.config) as f:
         config: dict[str, Any] = yaml.safe_load(f)
@@ -1718,6 +2216,7 @@ def main() -> None:
                     device=device,
                     cross_task_dataset="all",
                     cross_domain_splits=args.cross_domain_splits,
+                    cross_domain_ft_cfg=cross_domain_ft_cfg,
                 )
                 all_results[eval_task] = _deep_strip_heavy(_numpy_json(task_results))
             except Exception as e:
@@ -1767,6 +2266,7 @@ def main() -> None:
         registry_dir=args.registry_dir,
         device=device,
         cross_domain_splits=args.cross_domain_splits,
+        cross_domain_ft_cfg=cross_domain_ft_cfg,
     )
 
     # Save config snapshot
