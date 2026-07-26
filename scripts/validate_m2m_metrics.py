@@ -233,6 +233,24 @@ def test_duplicate_groups(rng: np.random.Generator) -> None:
     identity = np.eye(6)
     check("orthogonal rows stay separate", float(len(duplicate_groups(identity, threshold))), 6.0)
 
+    # Class constraint: near-identical rows carrying different labels must stay
+    # apart, because captions of different classes are never interchangeable.
+    base = rng.normal(size=48)
+    base /= np.linalg.norm(base)
+    near = np.stack([
+        (lambda v: v / np.linalg.norm(v))(base + 0.005 * rng.normal(size=48))
+        for _ in range(6)
+    ])
+    check(
+        "unlabelled near-copies merge into one group",
+        float(len(duplicate_groups(near, threshold))), 1.0,
+    )
+    labels = ["a", "a", "b", "b", "c", "c"]
+    labelled = duplicate_groups(near, threshold, labels=labels)
+    check("class constraint yields one group per label", float(len(labelled)), 3.0)
+    pure = all(len({labels[i] for i in g}) == 1 for g in labelled)
+    check("no group spans two labels", float(pure), 1.0)
+
 
 def test_real_registry(registry_path: Path, rng: np.random.Generator) -> None:
     print(f"\n[5] real registry: {registry_path}")

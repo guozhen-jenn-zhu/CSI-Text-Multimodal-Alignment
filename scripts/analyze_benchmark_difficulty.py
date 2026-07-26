@@ -196,7 +196,11 @@ def separability_per_task(overlap: Optional[dict]) -> dict[str, dict[str, Any]]:
             "text_only_probe_accuracy": em.get("text_only_probe_accuracy"),
             "jaccard_between": audit.get("lexical", {}).get("mean_jaccard_between_class"),
             "collision_rate": audit.get("lexical", {}).get("between_class_collision_rate"),
-            "fraction_near_duplicate": audit.get("near_duplicates", {}).get("fraction_removed"),
+            "fraction_near_duplicate": (
+                audit.get("near_duplicates", {})
+                .get("class_constrained", {})
+                .get("fraction_removed")
+            ),
         }
     return out
 

@@ -964,6 +964,7 @@ def _m2m_dedup_lines(m2m: dict) -> list[str]:
     if not isinstance(info, dict) or "num_groups" not in info:
         return []
 
+    constrained = info.get("class_constrained")
     lines = [
         "### Near-duplicate caption control (CSI -> Text)",
         "",
@@ -974,24 +975,45 @@ def _m2m_dedup_lines(m2m: dict) -> list[str]:
         f"{info.get('largest_group', 1)}).",
         "",
     ]
+    if constrained:
+        lines.extend([
+            "Merging is confined to captions of the same class, so the control "
+            "never credits a model for confusing two classes"
+            + (
+                f" ({info['num_cross_class_groups']} cross-class groups)."
+                if info.get("num_cross_class_groups")
+                else "."
+            ),
+            "",
+        ])
 
     dedup = m2m.get("csi_to_text_dedup")
     if not isinstance(dedup, dict):
         lines.extend(["No near-duplicates found: the gallery is already distinct.", ""])
         return lines
 
+    # Collapsing shrinks the gallery and the positive count, so the chance floor
+    # moves too; the normalized columns are the like-for-like comparison.
     base = m2m.get("csi_to_text", {})
     lines.extend([
-        "| Relevance | mAP (full) | mAP (deduped) | delta |",
-        "|-----------|------------|---------------|-------|",
+        "Collapsing shrinks both the gallery and the positive count, so the chance "
+        "floor moves as well. Compare the normalized columns, not the raw mAP.",
+        "",
+        "| Relevance | mAP (full) | mAP (dedup) | norm mAP (full) | norm mAP (dedup) | delta norm |",
+        "|-----------|------------|-------------|-----------------|------------------|------------|",
     ])
     for level, level_label in M2M_LEVEL_LABELS.items():
-        before = base.get(level, {}).get("mAP")
-        after = dedup.get(level, {}).get("mAP")
-        if before is None or after is None:
+        before, after = base.get(level, {}), dedup.get(level, {})
+        raw_b, raw_a = before.get("mAP"), after.get("mAP")
+        nrm_b, nrm_a = before.get("normalized_mAP"), after.get("normalized_mAP")
+        if raw_b is None or raw_a is None:
             continue
+        delta = f"{nrm_a - nrm_b:+.4f}" if nrm_b is not None and nrm_a is not None else "n/a"
         lines.append(
-            f"| {level_label} | {before:.4f} | {after:.4f} | {after - before:+.4f} |"
+            f"| {level_label} | {raw_b:.4f} | {raw_a:.4f} "
+            f"| {nrm_b:.4f} | {nrm_a:.4f} | {delta} |"
+            if nrm_b is not None and nrm_a is not None
+            else f"| {level_label} | {raw_b:.4f} | {raw_a:.4f} | n/a | n/a | {delta} |"
         )
     lines.append("")
     return lines

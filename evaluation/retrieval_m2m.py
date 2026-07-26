@@ -54,14 +54,25 @@ DEFAULT_NDCG_KS: tuple[int, ...] = (10, 100)
 RELEVANCE_LEVELS: dict[str, int] = {"strict": 2, "class_level": 1}
 
 #: Cosine threshold above which two captions count as near-duplicates.
-DEFAULT_DEDUP_COSINE: float = 0.95
+#:
+#: Templated captions share most of their wording ("The sensor detects User 1
+#: {activity} roughly {d} meters from the transmitter"), so the scaffolding
+#: alone carries two captions past 0.95 even when the activity differs.  On the
+#: CSI-Bench HAR registry a 0.95 threshold merges walking with running and
+#: jumping; 0.99 keeps the groups inside a class while still collapsing genuine
+#: paraphrases.
+DEFAULT_DEDUP_COSINE: float = 0.99
 
 #: Skip the dedup control above this gallery size (the pairwise cosine matrix
 #: becomes the dominant cost).
 MAX_DEDUP_GALLERY: int = 20000
 
 
-def duplicate_groups(embeddings: np.ndarray, threshold: float) -> list[list[int]]:
+def duplicate_groups(
+    embeddings: np.ndarray,
+    threshold: float,
+    labels: Optional[Sequence] = None,
+) -> list[list[int]]:
     """Group rows that a frozen encoder cannot tell apart, by leader clustering.
 
     Each row joins the group whose representative it is closest to, provided
@@ -70,19 +81,32 @@ def duplicate_groups(embeddings: np.ndarray, threshold: float) -> list[list[int]
     which single-linkage would not guarantee: chains of pairwise-similar
     captions would otherwise collapse into one implausibly large group.
 
+    When *labels* is given, a row may only join a representative carrying the
+    same label.  Two captions describing different classes are never
+    interchangeable for retrieval no matter how similar their wording, so
+    merging them would credit a model for confusing them.
+
     Rows are assumed L2-normalised.  Returns one list of indices per group.
     """
     groups: list[list[int]] = []
     leader_idx: list[int] = []
+    leader_labels: list = []
 
     for i in range(len(embeddings)):
         if leader_idx:
             sims = embeddings[i] @ embeddings[leader_idx].T
+            if labels is not None:
+                eligible = np.fromiter(
+                    (lbl == labels[i] for lbl in leader_labels),
+                    dtype=bool, count=len(leader_labels),
+                )
+                sims = np.where(eligible, sims, -np.inf)
             best = int(np.argmax(sims))
             if sims[best] > threshold:
                 groups[best].append(i)
                 continue
         leader_idx.append(i)
+        leader_labels.append(labels[i] if labels is not None else None)
         groups.append([i])
 
     return groups
@@ -439,28 +463,35 @@ class ManyToManyRetrievalEvaluator:
         relevance: np.ndarray,
         raw_text_embs: np.ndarray,
         sample_classes: np.ndarray,
+        text_classes: np.ndarray,
     ) -> tuple[dict, dict]:
         """Re-score CSI->Text after collapsing near-duplicate captions.
 
         A group of captions that the frozen text encoder cannot tell apart is
         merged into a single gallery entry (similarity = best member, relevance
         = best member), so a model cannot be credited several times for the
-        same caption.  Returns ``(info, metrics)``; ``metrics`` is empty when
-        there is nothing to collapse.
+        same caption.  Grouping is confined to captions of the same class, so
+        the control never forgives a model for confusing two activities.
+        Returns ``(info, metrics)``; ``metrics`` is empty when there is nothing
+        to collapse.
         """
         n_gallery = raw_text_embs.shape[0]
         if n_gallery > MAX_DEDUP_GALLERY:
             return {"skipped": f"gallery of {n_gallery} exceeds {MAX_DEDUP_GALLERY}"}, {}
 
-        groups = duplicate_groups(raw_text_embs, self.dedup_cosine)
+        groups = duplicate_groups(raw_text_embs, self.dedup_cosine, labels=text_classes)
         collapsed = [g for g in groups if len(g) > 1]
         info = {
             "cosine_threshold": self.dedup_cosine,
+            "class_constrained": True,
             "num_captions": n_gallery,
             "num_groups": len(groups),
             "num_captions_removed": n_gallery - len(groups),
             "num_collapsed_groups": len(collapsed),
             "largest_group": max((len(g) for g in groups), default=0),
+            "num_cross_class_groups": sum(
+                1 for g in groups if len({text_classes[i] for i in g}) > 1
+            ),
         }
         if not collapsed:
             return info, {}
@@ -589,7 +620,7 @@ class ManyToManyRetrievalEvaluator:
         )
 
         dedup_info, dedup_metrics = self._dedup_control(
-            sims, relevance, raw_text_embs.numpy(), sample_classes,
+            sims, relevance, raw_text_embs.numpy(), sample_classes, text_classes,
         )
 
         results: dict = {

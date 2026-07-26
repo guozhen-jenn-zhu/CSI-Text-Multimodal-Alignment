@@ -36,7 +36,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 import numpy as np
 
@@ -207,28 +207,20 @@ def embedding_separability(
     return result
 
 
-def near_duplicate_census(
-    embeddings: np.ndarray, texts: list[str], text_classes: list[str], threshold: float,
+def _census_one(
+    embeddings: np.ndarray,
+    texts: list[str],
+    text_classes: list[str],
+    threshold: float,
+    labels: Optional[list[str]],
 ) -> dict:
-    """How much the gallery shrinks when indistinguishable captions are merged."""
+    groups = duplicate_groups(embeddings, threshold, labels=labels)
     n = len(texts)
-    if n > MAX_DEDUP_GALLERY:
-        return {"skipped": f"gallery of {n} exceeds {MAX_DEDUP_GALLERY}"}
-
-    groups = duplicate_groups(embeddings, threshold)
     collapsed = [g for g in groups if len(g) > 1]
-    cross_class = [
-        g for g in collapsed if len({text_classes[i] for i in g}) > 1
-    ]
-    examples = [
-        {
-            "classes": sorted({text_classes[i] for i in g}),
-            "texts": [texts[i] for i in g[:3]],
-        }
-        for g in sorted(collapsed, key=lambda g: -len(g))[:3]
-    ]
+    cross_class = [g for g in collapsed if len({text_classes[i] for i in g}) > 1]
     return {
         "cosine_threshold": threshold,
+        "class_constrained": labels is not None,
         "num_captions": n,
         "num_groups": len(groups),
         "num_captions_removed": n - len(groups),
@@ -236,7 +228,63 @@ def near_duplicate_census(
         "num_collapsed_groups": len(collapsed),
         "num_cross_class_groups": len(cross_class),
         "largest_group": max((len(g) for g in groups), default=0),
-        "examples": examples,
+        "examples": [
+            {
+                "classes": sorted({text_classes[i] for i in g}),
+                "texts": [texts[i] for i in g[:3]],
+            }
+            for g in sorted(collapsed, key=lambda g: -len(g))[:3]
+        ],
+        "cross_class_examples": [
+            {
+                "classes": sorted({text_classes[i] for i in g}),
+                "texts": [texts[i] for i in g[:3]],
+            }
+            for g in sorted(cross_class, key=lambda g: -len(g))[:3]
+        ],
+    }
+
+
+def near_duplicate_census(
+    embeddings: np.ndarray,
+    texts: list[str],
+    text_classes: list[str],
+    threshold: float,
+    sweep: Sequence[float] = (0.95, 0.98, 0.99),
+) -> dict:
+    """How much the gallery shrinks when indistinguishable captions are merged.
+
+    Reports two groupings.  ``unconstrained`` is the diagnostic: captions are
+    merged on cosine alone, so any group spanning several classes is a pair the
+    frozen encoder cannot separate *despite* them meaning different things --
+    exactly the template-overlap failure worth reporting.  ``class_constrained``
+    matches the control that ``retrieval_m2m`` applies to mAP, where merging is
+    confined to captions of the same class.
+
+    A threshold sweep is included because the right cut-off depends on how
+    templated the captions are: shared scaffolding puts a floor under the
+    cosine between any two captions of the same register.
+    """
+    n = len(texts)
+    if n > MAX_DEDUP_GALLERY:
+        return {"skipped": f"gallery of {n} exceeds {MAX_DEDUP_GALLERY}"}
+
+    return {
+        "unconstrained": _census_one(embeddings, texts, text_classes, threshold, None),
+        "class_constrained": _census_one(
+            embeddings, texts, text_classes, threshold, text_classes,
+        ),
+        "threshold_sweep": [
+            {
+                "cosine_threshold": t,
+                "num_groups": len(duplicate_groups(embeddings, t)),
+                "num_cross_class_groups": sum(
+                    1 for g in duplicate_groups(embeddings, t)
+                    if len({text_classes[i] for i in g}) > 1
+                ),
+            }
+            for t in sweep
+        ],
     }
 
 
@@ -371,25 +419,77 @@ def build_markdown(audits: list[dict]) -> str:
             "Captions the frozen text encoder cannot separate (cosine above the "
             "threshold) are merged into one gallery entry. A large collapse means "
             "the nominal gallery size overstates how many distinct things a model "
-            "must tell apart. `retrieval_m2m` re-reports CSI->Text mAP on the "
-            "collapsed gallery as a control.",
+            "must tell apart.",
             "",
-            "| Task | Threshold | Captions | Groups | Removed | Cross-class groups | Largest |",
-            "|------|-----------|----------|--------|---------|--------------------|---------|",
+            "Two groupings are reported. *Unconstrained* merges on cosine alone, so "
+            "any group spanning several classes is a set of captions the encoder "
+            "cannot separate even though they describe different activities -- the "
+            "template-overlap failure itself. *Class-constrained* confines merging "
+            "to captions of one class and is the control `retrieval_m2m` applies "
+            "to mAP, so it never credits a model for confusing two activities.",
+            "",
+            "| Task | Grouping | Threshold | Captions | Groups | Removed | Cross-class groups | Largest |",
+            "|------|----------|-----------|----------|--------|---------|--------------------|---------|",
         ])
         for a in audits:
             nd = a.get("near_duplicates", {})
             if "skipped" in nd:
                 lines.append(
-                    f"| {a['dataset']}/{a['task']} | - | - | - | skipped: {nd['skipped']} | - | - |"
+                    f"| {a['dataset']}/{a['task']} | - | - | - | - "
+                    f"| skipped: {nd['skipped']} | - | - |"
                 )
                 continue
-            lines.append(
-                f"| {a['dataset']}/{a['task']} | {nd['cosine_threshold']:.2f} "
-                f"| {nd['num_captions']} | {nd['num_groups']} "
-                f"| {nd['num_captions_removed']} ({nd['fraction_removed']*100:.1f}%) "
-                f"| {nd['num_cross_class_groups']} | {nd['largest_group']} |"
+            for label, key in (("unconstrained", "unconstrained"),
+                               ("class-constrained", "class_constrained")):
+                c = nd.get(key)
+                if not c:
+                    continue
+                lines.append(
+                    f"| {a['dataset']}/{a['task']} | {label} "
+                    f"| {c['cosine_threshold']:.2f} "
+                    f"| {c['num_captions']} | {c['num_groups']} "
+                    f"| {c['num_captions_removed']} ({c['fraction_removed']*100:.1f}%) "
+                    f"| {c['num_cross_class_groups']} | {c['largest_group']} |"
+                )
+
+        lines.extend([
+            "",
+            "### Threshold sensitivity (unconstrained grouping)",
+            "",
+            "Cross-class groups at a given cut-off measure how much of the cosine "
+            "is carried by shared template scaffolding rather than by meaning.",
+            "",
+            "| Task | " + " | ".join(
+                f"cos>{t['cosine_threshold']:.2f}"
+                for t in (audits[0].get("near_duplicates", {}).get("threshold_sweep") or [])
+            ) + " |",
+        ])
+        sweep0 = audits[0].get("near_duplicates", {}).get("threshold_sweep") or []
+        lines.append("|---|" + "---|" * len(sweep0))
+        for a in audits:
+            sweep = a.get("near_duplicates", {}).get("threshold_sweep")
+            if not sweep:
+                continue
+            cells = " | ".join(
+                f"{t['num_groups']} grp, {t['num_cross_class_groups']} x-class"
+                for t in sweep
             )
+            lines.append(f"| {a['dataset']}/{a['task']} | {cells} |")
+
+        for a in audits:
+            xc = (a.get("near_duplicates", {}).get("unconstrained", {})
+                  .get("cross_class_examples") or [])
+            if not xc:
+                continue
+            lines.extend([
+                "",
+                f"#### Cross-class collisions, {a['dataset']}/{a['task']}",
+                "",
+            ])
+            for ex in xc:
+                lines.append(f"- classes {', '.join(ex['classes'])}:")
+                for t in ex["texts"]:
+                    lines.append(f"  - \"{t}\"")
 
     lines.extend([
         "",
@@ -420,7 +520,7 @@ def build_latex(audits: list[dict]) -> str:
     for a in audits:
         lx = a["lexical"]
         em = a.get("embedding", {})
-        nd = a.get("near_duplicates", {})
+        nd = a.get("near_duplicates", {}).get("class_constrained", {})
         probe = em.get("text_only_probe_accuracy")
         rows.append(
             f"{a['task'].replace('_', ' ')} & "

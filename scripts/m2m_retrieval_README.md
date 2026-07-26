@@ -78,7 +78,17 @@ python scripts/analyze_template_overlap.py \
 Per task: registry scale, word-level Jaccard within versus between classes with
 the collision rate at J > 0.5, CLIP-space 1-NN same-class rate, a text-only
 logistic probe on the class label, and a census of captions the frozen text
-encoder cannot separate at cosine > 0.95.
+encoder cannot separate at cosine > 0.99.
+
+The census reports two groupings. The *unconstrained* one merges on cosine
+alone, so any group spanning several classes is a set of captions the frozen
+encoder cannot tell apart even though they describe different activities. On
+CSI-Bench HAR at a 0.95 cut-off there are 6 such groups, the largest of which
+pools walking, running and jumping, because the shared template scaffolding
+("The sensor detects User N ... roughly D meters from the transmitter") carries
+the cosine past 0.95 on its own. That is the template-overlap problem measured
+directly. The *class-constrained* grouping confines merging to one class and is
+what `retrieval_m2m` applies to mAP.
 
 Add `--skip_embeddings` for the lexical statistics alone if the text encoder is
 not available.
@@ -185,9 +195,16 @@ skipped rather than failing.
 - **Macro and worst-class mAP.** If macro mAP sits well below micro mAP, a
   frequent class is carrying the score. Worst-class mAP is where the remaining
   difficulty is concentrated.
-- **Near-duplicate control.** Merging shrinks the gallery *and* the positive
-  count, so chance mAP moves too. Compare the normalized columns, not the raw
-  mAP columns, across the collapse.
+- **Near-duplicate control.** Read this as a *ceiling*, not as a corrected
+  score. It collapses distinctions the frozen text encoder cannot express, so
+  the deduped mAP is the best any model could achieve on top of that encoder,
+  and the gap to the full-gallery mAP is the share of the residual error that
+  is a property of the text tower rather than of the CSI branch. On HAR at 0.99
+  the largest surviving group pools walking composites across different users
+  and distances, which have genuinely different ground truth -- so the control
+  is forgiving by construction and should be quoted as an upper bound.
+  Merging also shrinks the gallery *and* the positive count, so chance mAP
+  moves; compare the normalized columns, not the raw mAP columns.
 - **Text-side separability.** A 1-NN same-class rate near 1.0 means the caption
   alone already determines the class, so a high CSI-to-Text R@1 is partly a
   property of the caption vocabulary rather than of the alignment.
