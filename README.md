@@ -502,6 +502,68 @@ Additional output files:
 - `cross_domain_few_shot/<split>.json` -- 0-shot baseline plus per-scope, per-K accuracy/F1 (mean and std)
 - `cross_domain_few_shot/summary.json` -- all splits plus the sweep settings used
 
+### CSI-only baseline comparison
+
+To tell whether CSI-text alignment buys cross-domain robustness or just raw
+accuracy, the same held-out splits are scored with the supervised CSI-only
+baseline (ResNet-18 1D + linear head, no text). `scripts/train_supervised.py`
+reports the IID `test` split only, so
+`scripts/eval_supervised_cross_domain.py` reuses its checkpoints to add
+`cross_env` / `cross_device`:
+
+```bash
+# Check class counts, label maps and split files without running the model
+PREFLIGHT=1 bash scripts/run_supervised_cross_domain.sh
+
+# Score every supervised baseline on the domain splits
+# (SYNC_S3=1 fetches any checkpoint that is not on disk yet)
+SYNC_S3=1 bash scripts/run_supervised_cross_domain.sh
+
+# One task, or a single domain axis
+TASK=har SPLITS="test cross_env" bash scripts/run_supervised_cross_domain.sh
+
+# Then build the side-by-side table
+python -m scripts.compare_aligned_vs_supervised --method clip_infonce
+```
+
+`PREFLIGHT=1` reports each checkpoint's output-class count next to the class
+count in `label_mapping.json` and flags a mismatch, which is the symptom of a
+checkpoint being paired with the wrong `task_root`.
+
+Three checks confirm the weights and the CSI actually loaded as they did during
+training, before any cross-domain number is believed:
+
+| Check | Trigger | Recorded as |
+|-------|---------|-------------|
+| IID reproduction | Re-scored `test` accuracy drifts from `supervised_results.json` by more than `--iid_tol` (default `0.005`) | `metrics.json` -> `iid_reproduction`, and a `Failed IID reproduction checks` section in the comparison |
+| Missing H5 files | A split declares more sample IDs than have files on disk | `num_split_ids` / `num_missing_files` per split |
+| Class-count mismatch | A split's label map yields a different class count than the classifier head | Split recorded with an `error`, other splits continue |
+
+A failed IID reproduction check means the cross-domain rows for that task are
+not trustworthy: the usual causes are a checkpoint from a different task, an
+edited `label_mapping.json`, or an `h5_key` / `target_subcarriers` /
+`target_time_steps` that differs from the training config.
+
+Architecture hyper-parameters are recovered from the checkpoint tensors, so no
+training flags have to be repeated. Evaluation aborts when
+`<task_root>/metadata/label_mapping.json` is absent, because class indices would
+then be rebuilt from each split's own labels and a domain split missing a class
+would silently score the classifier against shifted columns
+(`--allow_missing_label_map` overrides this).
+
+| Output | Contents |
+|--------|----------|
+| `supervised_baselines/csibench_<task>/cross_domain_eval/metrics.json` | IID entry plus each domain split |
+| `supervised_baselines/csibench_<task>/cross_domain_eval/cross_domain/<split>.json` | Per-split accuracy, weighted/macro F1, per-class F1 |
+| `supervised_baselines/csibench_<task>/cross_domain_eval/summary.md` | Per-split table with delta vs IID |
+| `results/analysis/comparison_aligned_vs_supervised.{md,tex,json}` | Aligned vs CSI-only per split |
+
+The comparison reports each model's drop from **its own** IID accuracy, so
+robustness is measured independently of absolute accuracy, and the mean row
+covers only tasks scored by both models. As on the aligned side, `proximity`
+resolves to the `proximity_fixed` baseline while reading data from
+`multitask/proximity`.
+
 ---
 
 ## S3 backup
@@ -571,7 +633,10 @@ CSI-Text-Multimodal-Alignment/
 │   ├── preprocess_to_consolidated.py  # H5 consolidation for fast I/O
 │   ├── run_evaluate.py      # Evaluation protocol runner
 │   ├── resolve_checkpoint.py     # Verify a checkpoint's architecture before scoring it
-│   └── run_cross_domain_eval.sh  # Cross-device / cross-environment sweep
+│   ├── run_cross_domain_eval.sh  # Cross-device / cross-environment sweep
+│   ├── eval_supervised_cross_domain.py  # CSI-only baseline on the domain splits
+│   ├── run_supervised_cross_domain.sh   # CSI-only cross-domain sweep
+│   └── compare_aligned_vs_supervised.py # Aligned vs CSI-only comparison tables
 ├── datasheet.md             # Datasheet for Datasets (Gebru et al.)
 ├── croissant.json           # Croissant metadata (NeurIPS artifact)
 ├── requirements.txt
@@ -605,6 +670,7 @@ All methods are selected via `configs/method/<name>.yaml` and `method=` in the e
 | **Cross-dataset transfer** | `evaluation/cross_task_transfer.py` | Zero-shot on a different dataset entirely |
 | **Cross-domain generalization** | `scripts/run_evaluate.py` (`cross_domain`) | Zero-shot on held-out environments / devices via the `cross_env` and `cross_device` splits |
 | **Cross-domain few-shot adaptation** | `evaluation/few_shot_finetune.py` (`cross_domain_few_shot`) | Accuracy recovered on a held-out domain after fine-tuning the CSI branch on K labelled samples per class |
+| **CSI-only cross-domain baseline** | `scripts/eval_supervised_cross_domain.py` | Supervised ResNet-18 1D on the same domain splits, compared against the aligned model via `scripts/compare_aligned_vs_supervised.py` |
 | **Embedding analysis** | `evaluation/visualization.py` | t-SNE/UMAP visualization + linear probe accuracy |
 
 ---
