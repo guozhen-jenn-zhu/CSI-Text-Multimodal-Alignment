@@ -47,6 +47,7 @@ export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
 
 ALL_METHODS=(clip_infonce siglip language_bind centrobind barlow_twins masked_predict)
 ENCODER="resnet18_1d"
+TEXT_ENCODER="${TEXT_ENCODER:-clip_vit_b32}"
 
 DATASET_TASKS=(
     "csibench:har"
@@ -105,6 +106,39 @@ resolve_registry_parent() {
     fi
 }
 
+# Some checkpoint directories hold weights from more than one training run:
+# the trainer appends only {dataset}-{task}-{method}, so an ablation with a
+# different text encoder overwrites best.pt in the same folder.  In
+# csibench-har-clip_infonce/ the surviving best.pt is the sentence-transformer
+# ablation (90.2% zero-shot), while the published 98.7% comes from
+# epoch_150_p0_clip.pt.  Naming it here gives it priority; resolve_checkpoint.py
+# verifies the embedded config either way.
+known_ckpt_file() {
+    case "$1-$2" in
+        har-clip_infonce) echo "epoch_150_p0_clip.pt" ;;
+        *)                echo "" ;;
+    esac
+}
+
+# Print the .pt in a run directory whose embedded config matches the encoder /
+# text encoder / method being reported, rather than trusting the filename.
+resolve_ckpt_path() {
+    local ckpt_dir="$1" task_name="$2" method="$3"
+    local prefer_args=() known
+    known=$(known_ckpt_file "$task_name" "$method")
+    if [[ -n "$known" ]]; then
+        prefer_args+=(--prefer "$known")
+    fi
+
+    python3 -m scripts.resolve_checkpoint \
+        --checkpoint_dir "$ckpt_dir" \
+        --encoder "$ENCODER" \
+        --text_encoder "$TEXT_ENCODER" \
+        --method "$method" \
+        --task "$task_name" \
+        "${prefer_args[@]+"${prefer_args[@]}"}"
+}
+
 n_total=0
 n_skipped=0
 n_evaluated=0
@@ -134,10 +168,16 @@ for dt_pair in "${DATASET_TASKS[@]}"; do
 
     for method in "${ALL_METHODS[@]}"; do
         n_total=$((n_total + 1))
-        ckpt="${MODEL_ROOT}/checkpoints/${dataset}-${task}-${method}/best.pt"
+        ckpt_dir="${MODEL_ROOT}/checkpoints/${dataset}-${task}-${method}"
 
-        if [[ ! -f "$ckpt" ]]; then
-            log_warn "Checkpoint not found: ${ckpt} -- skipping"
+        if [[ ! -d "$ckpt_dir" ]]; then
+            log_warn "Checkpoint dir not found: ${ckpt_dir} -- skipping"
+            n_skipped=$((n_skipped + 1))
+            continue
+        fi
+
+        if ! ckpt=$(resolve_ckpt_path "$ckpt_dir" "$task" "$method"); then
+            log_warn "No checkpoint in ${ckpt_dir} matches ${ENCODER}/${TEXT_ENCODER}/${method} -- skipping"
             n_skipped=$((n_skipped + 1))
             continue
         fi

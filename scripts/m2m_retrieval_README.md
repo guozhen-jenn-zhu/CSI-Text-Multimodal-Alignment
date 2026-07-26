@@ -211,6 +211,16 @@ skipped rather than failing.
 
 ## Notes and gotchas
 
+- **Checkpoint directories are shared.** The trainer appends only
+  `{dataset}-{task}-{method}`, with no text encoder in the path, so an ablation
+  that varied the text encoder overwrote `best.pt` of the main run. In
+  `csibench-har-clip_infonce/` the surviving `best.pt` is the
+  sentence-transformer ablation (90.2% zero-shot on HAR); the published 98.7%
+  comes from `epoch_150_p0_clip.pt`. Both the sweep and the preflight resolve
+  the file by reading each candidate's embedded config rather than globbing
+  `best.pt`, and reject a directory where nothing matches. Set `TEXT_ENCODER`
+  to change the architecture being demanded. To inspect a directory by hand:
+  `python -m scripts.resolve_checkpoint --checkpoint_dir <dir> --info`.
 - The protocol needs `sample_ids` in each batch to link a CSI sample back to its
   registry edges. `CSITextDataset.collate_fn` already emits them; a custom
   collate that drops them will raise `KeyError`.

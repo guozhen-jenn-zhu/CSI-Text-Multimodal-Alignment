@@ -64,6 +64,52 @@ METHODS = [
 
 PASS, FAIL, WARN, SKIP = "PASS", "FAIL", "WARN", "SKIP"
 
+#: Directories where a later run overwrote best.pt; see resolve_checkpoint.py.
+KNOWN_CKPT_FILE = {("har", "clip_infonce"): "epoch_150_p0_clip.pt"}
+
+
+def resolve_checkpoint_path(
+    ckpt_dir: Path, task: str, method: str, encoder: str, text_encoder: str,
+) -> tuple[Optional[Path], str]:
+    """Pick the .pt whose embedded config matches, mirroring resolve_checkpoint.py.
+
+    Returns ``(path, note)``.  ``path`` is None when nothing in the directory
+    was trained with the requested architecture.
+    """
+    from scripts.resolve_checkpoint import _candidates, _load_meta
+
+    if not ckpt_dir.is_dir():
+        return None, f"directory not found: {ckpt_dir}"
+
+    prefer = [KNOWN_CKPT_FILE[(task, method)]] if (task, method) in KNOWN_CKPT_FILE else []
+    paths = _candidates(ckpt_dir, prefer, 12)
+    if not paths:
+        return None, f"no .pt files in {ckpt_dir}"
+
+    want = {"encoder": encoder, "text_encoder": text_encoder, "method": method}
+    seen: list[str] = []
+    for path in paths:
+        try:
+            meta = _load_meta(path)
+        except Exception:
+            continue
+        if not meta.get("has_config"):
+            continue
+        bad = [
+            f"{k}={meta.get(k)}"
+            for k, v in want.items()
+            if meta.get(k) is not None and str(meta.get(k)) != v
+        ]
+        if bad:
+            seen.append(f"{path.name} [{', '.join(bad)}]")
+            continue
+        note = f"resolved {path.name}"
+        if path.name != "best.pt":
+            note += " (best.pt does NOT match this architecture)"
+        return path, note
+
+    return None, "no candidate matches; found " + ("; ".join(seen) or "nothing readable")
+
 
 def resolve_task_root(data_root: Path, dataset: str, task: str) -> Path:
     if dataset == "csibench" and task in ("har", "proximity", "user_id"):
@@ -128,11 +174,56 @@ def check_checkpoint(report: CellReport, ckpt_path: Path, device: str) -> Option
     size_mb = ckpt_path.stat().st_size / 1e6
     report.details["checkpoint_epoch"] = ckpt.get("epoch")
     report.details["checkpoint_val_loss"] = ckpt.get("val_loss")
+    report.details["checkpoint_path"] = str(ckpt_path)
     report.record(
         "checkpoint", PASS,
-        f"{size_mb:.0f} MB, epoch={ckpt.get('epoch')}, val_loss={ckpt.get('val_loss')}",
+        f"{ckpt_path.name}, {size_mb:.0f} MB, epoch={ckpt.get('epoch')}, "
+        f"val_loss={ckpt.get('val_loss')}",
     )
     return ckpt
+
+
+def check_architecture(
+    report: CellReport, ckpt: dict, method: str, encoder: str, text_encoder: str,
+) -> None:
+    """Confirm the file on disk was trained with the architecture being reported.
+
+    Checkpoint directories are named ``{dataset}-{task}-{method}`` with no text
+    encoder in the path, so an ablation that varied the text encoder overwrote
+    ``best.pt`` of the main run.  Scoring that file silently reports numbers for
+    a different model, which is what ``scripts/resolve_checkpoint.py`` exists to
+    prevent; this repeats the check so the preflight cannot bless a wrong file.
+    """
+    cfg = ckpt.get("config") or {}
+    if not cfg:
+        report.record("architecture", WARN, "no embedded config; cannot verify provenance")
+        return
+
+    got = {
+        "csi_encoder": (cfg.get("csi_encoder") or {}).get("name"),
+        "text_encoder": (cfg.get("text_encoder") or {}).get("name"),
+        "method": cfg.get("method"),
+    }
+    want = {"csi_encoder": encoder, "text_encoder": text_encoder, "method": method}
+    problems = [
+        f"{k}={got[k]} (expected {v})"
+        for k, v in want.items()
+        if got[k] is not None and str(got[k]) != v
+    ]
+    if problems:
+        report.record(
+            "architecture", FAIL,
+            "checkpoint was trained with a different architecture: "
+            + "; ".join(problems)
+            + ". Resolve the right file with: python -m scripts.resolve_checkpoint "
+              f"--checkpoint_dir <dir> --encoder {encoder} "
+              f"--text_encoder {text_encoder} --method {method}",
+        )
+        return
+    report.record(
+        "architecture", PASS,
+        f"{got['csi_encoder']} / {got['text_encoder']} / {got['method']}",
+    )
 
 
 def check_model(
@@ -317,7 +408,18 @@ def run_cell(
     data_root = Path(args.data_root).expanduser()
     model_root = Path(args.model_root).expanduser()
 
-    ckpt_path = model_root / "checkpoints" / f"{dataset_name}-{task}-{method}" / "best.pt"
+    ckpt_dir = model_root / "checkpoints" / f"{dataset_name}-{task}-{method}"
+    ckpt_path, resolve_note = resolve_checkpoint_path(
+        ckpt_dir, task, method, args.encoder, args.text_encoder,
+    )
+    if ckpt_path is None:
+        report.record("checkpoint", FAIL, resolve_note)
+        for name in ("architecture", "model", "registry", "test_split", "id_overlap", "batch"):
+            report.record(name, SKIP, "no usable checkpoint")
+        return report
+    if "does NOT match" in resolve_note:
+        report.record("resolution", WARN, resolve_note)
+
     task_root = resolve_task_root(data_root, dataset_name, task)
     registry_path = resolve_registry_parent(data_root, dataset_name, task) / task / "pair_registry.json"
     out_dir = (
@@ -331,6 +433,7 @@ def run_cell(
 
     built = None
     if ckpt is not None:
+        check_architecture(report, ckpt, method, args.encoder, args.text_encoder)
         built = check_model(
             report, ckpt,
             [
@@ -368,6 +471,11 @@ def main() -> int:
     parser.add_argument("--data_root", default="/home/sagemaker-user/Multimodal_CSI_Text/Dataset")
     parser.add_argument("--model_root", default="/home/sagemaker-user/Multimodal_CSI_Text/Model")
     parser.add_argument("--encoder", default="resnet18_1d")
+    parser.add_argument(
+        "--text_encoder", default="clip_vit_b32",
+        help="Text encoder the reported numbers should come from. A checkpoint "
+             "trained with a different one is rejected rather than scored.",
+    )
     parser.add_argument("--only_tasks", nargs="*", default=None, metavar="DATASET:TASK")
     parser.add_argument("--only_methods", nargs="*", default=None)
     parser.add_argument("--batch_size", type=int, default=8)
