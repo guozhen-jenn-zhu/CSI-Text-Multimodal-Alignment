@@ -287,12 +287,11 @@ if ref_iid and isinstance(iid, float):
         print(
             f"  [{task}] WARNING: IID accuracy moved {ref:.4f} -> {iid:.4f} "
             f"(> {float(tol):.4f}).\n"
-            f"  [{task}]          This checkpoint is not the one behind the "
-            f"previously reported number.\n"
-            f"  [{task}]          Previous metrics kept at {backup}; inspect the "
-            f"checkpoint directory with\n"
+            f"  [{task}]          The two runs scored different models; check "
+            f"which one is right with\n"
             f"  [{task}]          python -m scripts.resolve_checkpoint "
-            f"--checkpoint_dir <dir> --info"
+            f"--checkpoint_dir <dir> --info\n"
+            f"  [{task}]          Previous metrics kept at {backup}"
         )
     else:
         print(f"  [{task}] IID matches previously recorded {ref:.4f}")
