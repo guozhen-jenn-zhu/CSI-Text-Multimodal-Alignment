@@ -10,6 +10,13 @@ from evaluation.cross_task_transfer import CrossDatasetTransfer, CrossTaskTransf
 from evaluation.few_shot import FewShotLinearProbe
 from evaluation.few_shot_finetune import FewShotFinetune
 from evaluation.retrieval import RetrievalEvaluator, run_retrieval_evaluation
+from evaluation.retrieval_m2m import (
+    ManyToManyRetrievalEvaluator,
+    compute_ranking_metrics,
+    duplicate_groups,
+    expected_random_ap,
+    run_m2m_retrieval_evaluation,
+)
 from evaluation.visualization import (
     EmbeddingVisualizer,
     FailureCaseAnalyzer,
@@ -22,6 +29,11 @@ __all__ = [
     "run_zero_shot_evaluation",
     "RetrievalEvaluator",
     "run_retrieval_evaluation",
+    "ManyToManyRetrievalEvaluator",
+    "run_m2m_retrieval_evaluation",
+    "compute_ranking_metrics",
+    "duplicate_groups",
+    "expected_random_ap",
     "FewShotLinearProbe",
     "FewShotFinetune",
     "AmbientQA",

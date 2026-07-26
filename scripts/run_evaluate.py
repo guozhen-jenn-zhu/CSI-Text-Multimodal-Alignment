@@ -35,6 +35,7 @@ from evaluation import (
     FewShotFinetune,
     FewShotLinearProbe,
     LinearProbe,
+    run_m2m_retrieval_evaluation,
     run_retrieval_evaluation,
     run_zero_shot_evaluation,
 )
@@ -874,6 +875,128 @@ def _cross_domain_few_shot_md(cd_fs: dict[str, Any], heading: str) -> list[str]:
     return lines
 
 
+M2M_LEVEL_LABELS = {
+    "strict": "Strict (sample's own captions)",
+    "class_level": "Class-level (any caption of the class)",
+}
+
+
+def _m2m_summary_lines(m2m: Any) -> list[str]:
+    """Markdown section for the many-to-many retrieval protocol."""
+    if not isinstance(m2m, dict) or "csi_to_text" not in m2m:
+        return []
+
+    gallery = m2m.get("gallery", {})
+    lines = [
+        "## Many-to-Many Retrieval",
+        "",
+        f"Gallery: {gallery.get('num_texts', 'N/A')} captions x "
+        f"{gallery.get('num_test_samples', 'N/A')} test CSI samples. "
+        "Every query is scored against all of its valid matches, so mAP and "
+        "nDCG replace Rank-1 as the headline numbers. `chance` is the exact "
+        "expected mAP of a random ranking with the same positives; "
+        "`norm mAP` rescales the score onto [chance -> 1].",
+        "",
+    ]
+
+    for direction, label in (("csi_to_text", "CSI -> Text"), ("text_to_csi", "Text -> CSI")):
+        block = m2m.get(direction)
+        if not isinstance(block, dict):
+            continue
+        if "error" in block:
+            lines.extend([f"### {label}", "", f"_{block['error']}_", ""])
+            continue
+
+        header = [
+            "Relevance", "Pos/query", "mAP", "chance", "norm mAP", "macro mAP",
+            "worst class", "R-Prec", "MRR", "nDCG@10", "hit@1",
+        ]
+        lines.extend([
+            f"### {label}",
+            "",
+            "| " + " | ".join(header) + " |",
+            "|" + "|".join("---" for _ in header) + "|",
+        ])
+
+        for level, level_label in M2M_LEVEL_LABELS.items():
+            metrics = block.get(level)
+            if not isinstance(metrics, dict) or "mAP" not in metrics:
+                continue
+            macro = metrics.get("mAP_macro")
+            worst = metrics.get("mAP_worst_class")
+            cells = [
+                level_label,
+                f"{metrics.get('avg_positives_per_query', 0):.1f}",
+                f"{metrics['mAP']:.4f}",
+                f"{metrics.get('chance', {}).get('mAP', 0):.4f}",
+                f"{metrics.get('normalized_mAP', 0):.4f}",
+                f"{macro:.4f}" if macro is not None else "-",
+                f"{worst:.4f} (c{metrics.get('worst_class', '?')})" if worst is not None else "-",
+                f"{metrics.get('r_precision', 0):.4f}",
+                f"{metrics.get('mrr', 0):.4f}",
+                f"{metrics.get('ndcg@10', 0):.4f}",
+                f"{metrics.get('hit_rate@1', 0):.4f}",
+            ]
+            lines.append("| " + " | ".join(cells) + " |")
+
+        lines.append("")
+        graded = block.get("graded", {})
+        if "ndcg_graded@10" in graded:
+            lines.extend([
+                "Graded nDCG@10 (own caption > same-class caption > unrelated): "
+                f"{graded['ndcg_graded@10']:.4f}",
+                "",
+            ])
+        if block.get("levels_identical"):
+            lines.extend([
+                "_This task has no Level-2 composite captions, so the strict and "
+                "class-level views coincide._",
+                "",
+            ])
+
+    lines.extend(_m2m_dedup_lines(m2m))
+    return lines
+
+
+def _m2m_dedup_lines(m2m: dict) -> list[str]:
+    """Markdown for the near-duplicate caption control (CSI -> Text only)."""
+    info = m2m.get("near_duplicate_control")
+    if not isinstance(info, dict) or "num_groups" not in info:
+        return []
+
+    lines = [
+        "### Near-duplicate caption control (CSI -> Text)",
+        "",
+        f"Captions whose frozen-text-encoder cosine exceeds "
+        f"{info.get('cosine_threshold', 0):.2f} are merged into one gallery entry, "
+        f"collapsing {info['num_captions']} captions into {info['num_groups']} "
+        f"({info.get('num_captions_removed', 0)} removed, largest group "
+        f"{info.get('largest_group', 1)}).",
+        "",
+    ]
+
+    dedup = m2m.get("csi_to_text_dedup")
+    if not isinstance(dedup, dict):
+        lines.extend(["No near-duplicates found: the gallery is already distinct.", ""])
+        return lines
+
+    base = m2m.get("csi_to_text", {})
+    lines.extend([
+        "| Relevance | mAP (full) | mAP (deduped) | delta |",
+        "|-----------|------------|---------------|-------|",
+    ])
+    for level, level_label in M2M_LEVEL_LABELS.items():
+        before = base.get(level, {}).get("mAP")
+        after = dedup.get(level, {}).get("mAP")
+        if before is None or after is None:
+            continue
+        lines.append(
+            f"| {level_label} | {before:.4f} | {after:.4f} | {after - before:+.4f} |"
+        )
+    lines.append("")
+    return lines
+
+
 def generate_summary_md(
     results: dict[str, Any],
     checkpoint_path: str,
@@ -941,6 +1064,8 @@ def generate_summary_md(
         lines.append(f"| CSI -> Text | " + " | ".join(c2t_cells) + " |")
         lines.append(f"| Text -> CSI | " + " | ".join(t2c_cells) + " |")
         lines.append("")
+
+    lines.extend(_m2m_summary_lines(results.get("retrieval_m2m")))
 
     fs = results.get("few_shot")
     if fs and isinstance(fs, dict):
@@ -1124,6 +1249,32 @@ def generate_multitask_summary_md(
         # Split tables are one level deeper under the per-task heading.
         lines.extend(s.replace("### Split:", "#### Split:", 1) for s in section)
 
+    m2m_rows: list[str] = []
+    for task_name, task_res in sorted(all_results.items()):
+        m2m = task_res.get("retrieval_m2m")
+        if not isinstance(m2m, dict):
+            continue
+        for direction, label in (("csi_to_text", "CSI->Text"), ("text_to_csi", "Text->CSI")):
+            strict = m2m.get(direction, {}).get("strict")
+            if not isinstance(strict, dict) or "mAP" not in strict:
+                continue
+            m2m_rows.append(
+                f"| {task_name} | {label} | {m2m.get('gallery', {}).get('num_texts', '?')} "
+                f"| {strict['mAP']:.4f} | {strict.get('chance', {}).get('mAP', 0):.4f} "
+                f"| {strict.get('normalized_mAP', 0):.4f} "
+                f"| {strict.get('mAP_macro', float('nan')):.4f} "
+                f"| {strict.get('ndcg@10', 0):.4f} | {strict.get('hit_rate@1', 0):.4f} |"
+            )
+    if m2m_rows:
+        lines.extend([
+            "## Many-to-Many Retrieval (strict relevance)",
+            "",
+            "| Task | Direction | Gallery | mAP | chance | norm mAP | macro mAP | nDCG@10 | hit@1 |",
+            "|------|-----------|---------|-----|--------|----------|-----------|---------|-------|",
+            *m2m_rows,
+            "",
+        ])
+
     has_lp = False
     for task_name, task_res in sorted(all_results.items()):
         lp = task_res.get("visualization", {}).get("linear_probe", {})
@@ -1248,11 +1399,73 @@ def write_latex_tables(results: dict[str, Any], path: Path) -> None:
             "",
         ])
 
+    lines.extend(_m2m_latex_table(results.get("retrieval_m2m")))
+
     lines.extend(
         _cross_domain_few_shot_latex(results.get("cross_domain_few_shot", {}))
     )
 
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _m2m_latex_table(m2m: Any) -> list[str]:
+    """LaTeX table for the many-to-many retrieval protocol."""
+    if not isinstance(m2m, dict) or "csi_to_text" not in m2m:
+        return []
+
+    rows: list[str] = []
+    for direction, label in (
+        ("csi_to_text", "CSI $\\rightarrow$ Text"),
+        ("text_to_csi", "Text $\\rightarrow$ CSI"),
+    ):
+        block = m2m.get(direction)
+        if not isinstance(block, dict):
+            continue
+        for level, level_label in M2M_LEVEL_LABELS.items():
+            metrics = block.get(level)
+            if not isinstance(metrics, dict) or "mAP" not in metrics:
+                continue
+            macro = metrics.get("mAP_macro")
+            worst = metrics.get("mAP_worst_class")
+            cells = [
+                label,
+                _latex_escape(level),
+                f"{metrics.get('avg_positives_per_query', 0):.1f}",
+                f"{metrics['mAP']:.4f}",
+                f"{metrics.get('chance', {}).get('mAP', 0):.4f}",
+                f"{metrics.get('normalized_mAP', 0):.4f}",
+                f"{macro:.4f}" if macro is not None else "---",
+                f"{worst:.4f}" if worst is not None else "---",
+                f"{metrics.get('r_precision', 0):.4f}",
+                f"{metrics.get('mrr', 0):.4f}",
+                f"{metrics.get('ndcg@10', 0):.4f}",
+            ]
+            rows.append(" & ".join(cells) + " \\\\")
+    if not rows:
+        return []
+
+    gallery = m2m.get("gallery", {})
+    return [
+        "\\begin{table}[t]",
+        "\\centering",
+        "\\begin{tabular}{llccccccccc}",
+        "\\hline",
+        "Direction & Relevance & Pos/query & mAP & Chance & Norm. mAP & "
+        "Macro mAP & Worst class & R-Prec & MRR & nDCG@10 \\\\",
+        "\\hline",
+        *rows,
+        "\\hline",
+        "\\end{tabular}",
+        "\\caption{Many-to-many retrieval over the full caption gallery "
+        f"({gallery.get('num_texts', '?')} captions, "
+        f"{gallery.get('num_test_samples', '?')} test CSI samples). "
+        "\\emph{strict} scores each query against its own registry edges; "
+        "\\emph{class\\_level} counts any caption of the correct class. "
+        "Chance is the exact expected mAP of a random ranking with the same "
+        "number of positives.}",
+        "\\end{table}",
+        "",
+    ]
 
 
 def _latex_escape(text: str) -> str:
@@ -1824,7 +2037,10 @@ def _evaluate_single_task(
         "config": {"dataset": dataset, "task": task, "method": config.get("method")},
     }
 
-    iid_protocols = ("zero_shot", "visualization", "cross_task", "cross_dataset", "retrieval", "few_shot")
+    iid_protocols = (
+        "zero_shot", "visualization", "cross_task", "cross_dataset",
+        "retrieval", "retrieval_m2m", "few_shot",
+    )
     needs_iid_loaders = any(p in eval_protocols for p in iid_protocols)
     needs_class_texts = needs_iid_loaders or any(
         p in eval_protocols for p in ("cross_domain", "cross_domain_few_shot")
@@ -2040,6 +2256,32 @@ def _evaluate_single_task(
             logger.warning("Retrieval evaluation failed: %s", e)
             results["retrieval"] = {"error": str(e)}
 
+    # --- Many-to-many retrieval metrics (mAP / nDCG over the full caption gallery) ---
+    if "retrieval_m2m" in eval_protocols and needs_iid_loaders:
+        try:
+            m2m_reg_path = _resolve_registry_path(
+                task, registry_dir, config, dataset_name=dataset,
+            )
+            if not m2m_reg_path or not Path(m2m_reg_path).is_file():
+                raise FileNotFoundError(
+                    "many-to-many retrieval needs a pair registry; none found at "
+                    f"{m2m_reg_path!r}. Pass --registry_dir."
+                )
+            m2m_res = run_m2m_retrieval_evaluation(
+                model=model,
+                dataloader=loaders["test"],
+                registry=PairRegistry.load(m2m_reg_path),
+                text_encoder=text_encoder,
+                text_projection=text_projection,
+                csi_projection=csi_projection,
+                device=str(device),
+            )
+            m2m_res["registry_path"] = str(m2m_reg_path)
+            results["retrieval_m2m"] = _numpy_json(m2m_res)
+        except Exception as e:
+            logger.warning("Many-to-many retrieval evaluation failed: %s", e)
+            results["retrieval_m2m"] = {"error": str(e)}
+
     # --- Visualization + Linear Probe ---
     train_x: Optional[np.ndarray] = None
     train_y: Optional[np.ndarray] = None
@@ -2134,7 +2376,9 @@ def main() -> None:
         default=["zero_shot", "ambient_qa", "cross_task", "cross_dataset", "visualization"],
         help="Protocols to run. Options: zero_shot, ambient_qa, cross_task, "
              "cross_dataset, cross_domain, cross_domain_few_shot, "
-             "visualization, retrieval, few_shot",
+             "visualization, retrieval, retrieval_m2m, few_shot. "
+             "retrieval_m2m ranks against the full caption gallery and needs a "
+             "pair registry (see --registry_dir).",
     )
     parser.add_argument(
         "--cross_domain_splits",
